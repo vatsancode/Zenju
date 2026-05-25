@@ -1,0 +1,68 @@
+.formFields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.heading {
+  text-align: center;
+  margin-bottom: var(--space-1);
+}
+
+.subtext {
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.forgotRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.forgotLink {
+  font-size: var(--text-sm);
+  color: var(--color-brand-blue);
+  text-decoration: none;
+}
+
+.forgotLink:hover {
+  text-decoration: underline;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  margin: var(--space-4) 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 0.5px;
+  background: var(--color-border-default);
+}
+
+.bottomLink {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-4);
+}
+
+.bottomLink a {
+  color: var(--color-brand-blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.bottomLink a:hover {
+  text-decoration: underline;
+}
+
+/* spinner — use global .spinner class */

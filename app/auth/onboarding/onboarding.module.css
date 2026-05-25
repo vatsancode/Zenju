@@ -1,0 +1,83 @@
+.heading {
+  margin-bottom: var(--space-6);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ── Custom dropdown ───────────────────────────────────── */
+
+.selectWrap {
+  position: relative;
+}
+
+/* Layout-only — colors/border/padding come from form-select global class */
+.selectTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+  text-align: left;
+  appearance: none;
+}
+
+.selectTriggerOpen {
+  border-color: var(--color-brand-blue);
+  box-shadow: var(--shadow-focus-brand);
+}
+
+.selectTriggerPlaceholder {
+  color: var(--color-text-disabled);
+}
+
+.selectChevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.selectChevronOpen {
+  transform: rotate(180deg);
+}
+
+.selectList {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 10;
+  overflow: hidden;
+  padding: var(--space-1) 0;
+}
+
+.selectOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px var(--space-3);
+  cursor: pointer;
+  color: var(--color-text-primary);
+  transition: background var(--transition-fast);
+}
+
+.selectOption:hover {
+  background: var(--color-bg-secondary);
+}
+
+.selectOptionActive {
+  background: var(--color-bg-info);
+  color: var(--color-text-info);
+  font-weight: 500;
+}
+
+.selectOptionActive:hover {
+  background: var(--color-bg-info);
+}

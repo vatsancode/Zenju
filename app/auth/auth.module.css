@@ -1,0 +1,105 @@
+/* ── Auth page shell ───────────────────────────────── */
+
+.page {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(
+    170deg,
+    var(--color-auth-sky-1)  0%,
+    var(--color-auth-sky-2) 30%,
+    var(--color-auth-sky-3) 65%,
+    var(--color-auth-sky-4) 100%
+  );
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-4);
+}
+
+/* Decorative concentric rings */
+.page::before,
+.page::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.page::before {
+  width: 560px;
+  height: 560px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+}
+
+.page::after {
+  width: 860px;
+  height: 860px;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+}
+
+/* ── Cloud layer ───────────────────────────────────── */
+
+.clouds {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 52%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Logo ──────────────────────────────────────────── */
+
+.logo {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  position: relative;
+  z-index: 1;
+}
+
+.logoMark {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: #1E3A5F;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logoMark span {
+  color: var(--color-text-inverse);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.logoText {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: #1E3A5F;
+}
+
+/* ── Card ──────────────────────────────────────────── */
+
+.card {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-8);
+  width: 100%;
+  max-width: 420px;
+  box-shadow: var(--shadow-auth-card);
+  position: relative;
+  z-index: 1;
+}

@@ -1,0 +1,42 @@
+.logoRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.logoMark {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.logoAccent {
+  color: var(--color-brand-blue);
+}
+
+.logoutBtn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.bottomGroup {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* sidebar__user inside bottomGroup — cancel its own margin-top: auto, add breathing room */
+.bottomGroup :global(.sidebar__user) {
+  margin-top: var(--space-2);
+}

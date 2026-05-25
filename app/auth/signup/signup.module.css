@@ -1,0 +1,168 @@
+.heading {
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.formFields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+/* ── Email row ─────────────────────────────────────── */
+
+.emailRow {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.emailRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Verify button — stretches to match input height */
+.verifyBtn {
+  flex-shrink: 0;
+  align-self: stretch;
+  height: auto;
+}
+
+/* Locked email — read-only visual state */
+.emailLocked {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: default;
+}
+
+/* "Change email" text link */
+.changeEmailBtn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-brand-blue);
+  cursor: pointer;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.changeEmailBtn:hover {
+  text-decoration: underline;
+}
+
+/* Cancel (✕) icon button */
+.cancelBtn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.cancelBtn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-secondary);
+}
+
+/* ── OTP boxes ─────────────────────────────────────── */
+
+.otpBoxes {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.otpBox {
+  flex: 1;
+  min-width: 0;
+  aspect-ratio: 1;
+  text-align: center;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: var(--transition-fast);
+  padding: 0;
+  cursor: text;
+}
+
+.otpBox:hover {
+  border-color: var(--color-border-strong);
+}
+
+.otpBox:focus {
+  border-color: var(--color-brand-blue);
+  box-shadow: var(--shadow-focus-brand);
+}
+
+.otpBox:disabled {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.verifyingHint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-2);
+}
+
+/* spinners — use global .spinner and .spinner--sm classes */
+
+/* ── Divider ───────────────────────────────────────── */
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  margin: var(--space-4) 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 0.5px;
+  background: var(--color-border-default);
+}
+
+/* ── Bottom link ───────────────────────────────────── */
+
+.bottomLink {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-4);
+}
+
+.bottomLink a {
+  color: var(--color-brand-blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.bottomLink a:hover {
+  text-decoration: underline;
+}
+
