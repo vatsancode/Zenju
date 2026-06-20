@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { mockCatalogueItems, formatINR } from '@/lib/mock-data'
-import { Plus, X, Search, ChevronDown, Pencil, ArrowLeft, Hash, Gift } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, Pencil, ArrowLeft, Hash, Gift, SlidersHorizontal } from 'lucide-react'
 import styles from './offers.module.css'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -93,6 +93,10 @@ export default function OffersPage() {
   const [formBenefitValue, setFormBenefitValue] = useState<number | ''>(0)
   const [submitted, setSubmitted] = useState(false)
 
+  // ── Filter dropdown ──────────────────────────────────────────────────────
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false)
+  const filterRef = useRef<HTMLDivElement>(null)
+
   // ── Item picker ──────────────────────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerSearch, setPickerSearch] = useState('')
@@ -103,10 +107,13 @@ export default function OffersPage() {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
         setPickerOpen(false)
       }
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setShowFilterDropdown(false)
+      }
     }
-    if (pickerOpen) document.addEventListener('mousedown', handleClick)
+    if (pickerOpen || showFilterDropdown) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [pickerOpen])
+  }, [pickerOpen, showFilterDropdown])
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const filteredOffers = offers.filter(o => {
@@ -248,21 +255,43 @@ export default function OffersPage() {
 
       {/* Filters */}
       <div className={styles.filtersRow}>
-        <input
-          className="form-input"
-          placeholder="Search offers..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <select
-          className="form-select"
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
-        >
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
+        <div className={styles.searchWrap}>
+          <Search size={14} className={styles.searchIcon} />
+          <input
+            className={`form-input ${styles.searchInput}`}
+            placeholder="Search items..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <div className={styles.filterBtnWrap} ref={filterRef}>
+          <button
+            type="button"
+            className={`${styles.filterBtn} ${statusFilter ? styles.filterBtnActive : ''}`}
+            onClick={() => setShowFilterDropdown(prev => !prev)}
+          >
+            <SlidersHorizontal size={14} />
+            Filter
+          </button>
+          {showFilterDropdown && (
+            <div className={styles.filterDropdown}>
+              <div className={styles.filterDropdownLabel}>Status</div>
+              {(['', 'active', 'inactive'] as const).map(val => (
+                <button
+                  key={val || 'all'}
+                  type="button"
+                  className={`${styles.filterDropdownOption} ${statusFilter === val ? styles.filterDropdownOptionActive : ''}`}
+                  onClick={() => {
+                    setStatusFilter(val)
+                    setShowFilterDropdown(false)
+                  }}
+                >
+                  {val === '' ? 'All Status' : val === 'active' ? 'Active' : 'Inactive'}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Offer list / empty state */}

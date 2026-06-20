@@ -361,10 +361,42 @@ export const mockPricingRules = [
   },
 ]
 
+export const mockSaleItems = [
+  // Sale 1 items
+  { id: 'si1', sale_id: '1', catalogue_item_id: '1', catalogue_item_name: 'Cashew 100g', quantity: 3, unit_price: 90, cost_price_at_sale: 80, item_discount_amount: 0, line_total: 270, is_bundle: false, stock_deducted: true },
+  { id: 'si2', sale_id: '1', catalogue_item_id: '6', catalogue_item_name: 'Date Box 250g', quantity: 1, unit_price: 180, cost_price_at_sale: 150, item_discount_amount: 0, line_total: 180, is_bundle: false, stock_deducted: true },
+  // Sale 2 items
+  { id: 'si3', sale_id: '2', catalogue_item_id: '3', catalogue_item_name: 'Fruit & Nut Pack 200g', quantity: 2, unit_price: 320, cost_price_at_sale: 250, item_discount_amount: 0, line_total: 640, is_bundle: true, stock_deducted: true },
+  { id: 'si4', sale_id: '2', catalogue_item_id: '2', catalogue_item_name: 'Almond 100g', quantity: 4, unit_price: 80, cost_price_at_sale: 70, item_discount_amount: 0, line_total: 320, is_bundle: false, stock_deducted: true },
+  { id: 'si5', sale_id: '2', catalogue_item_id: '1', catalogue_item_name: 'Cashew 100g', quantity: 2, unit_price: 90, cost_price_at_sale: 80, item_discount_amount: 0, line_total: 180, is_bundle: false, stock_deducted: true },
+  { id: 'si6', sale_id: '2', catalogue_item_id: '5', catalogue_item_name: 'Consultation Service', quantity: 1, unit_price: 60, cost_price_at_sale: 0, item_discount_amount: 0, line_total: 60, is_bundle: false, stock_deducted: false },
+  // Sale 3 items
+  { id: 'si7', sale_id: '3', catalogue_item_id: '3', catalogue_item_name: 'Fruit & Nut Pack 200g', quantity: 1, unit_price: 320, cost_price_at_sale: 250, item_discount_amount: 0, line_total: 320, is_bundle: true, stock_deducted: true },
+  // Sale 4 items
+  { id: 'si8', sale_id: '4', catalogue_item_id: '4', catalogue_item_name: 'Mixed Dry Fruits 500g', quantity: 3, unit_price: 650, cost_price_at_sale: 480, item_discount_amount: 0, line_total: 1950, is_bundle: true, stock_deducted: true },
+  { id: 'si9', sale_id: '4', catalogue_item_id: '1', catalogue_item_name: 'Cashew 100g', quantity: 5, unit_price: 90, cost_price_at_sale: 80, item_discount_amount: 0, line_total: 450, is_bundle: false, stock_deducted: true },
+  // Sale 5 items
+  { id: 'si10', sale_id: '5', catalogue_item_id: '2', catalogue_item_name: 'Almond 100g', quantity: 2, unit_price: 80, cost_price_at_sale: 70, item_discount_amount: 0, line_total: 160, is_bundle: false, stock_deducted: true },
+  { id: 'si11', sale_id: '5', catalogue_item_id: '6', catalogue_item_name: 'Date Box 250g', quantity: 2, unit_price: 180, cost_price_at_sale: 150, item_discount_amount: 0, line_total: 360, is_bundle: false, stock_deducted: true },
+  // Sale 6 items
+  { id: 'si12', sale_id: '6', catalogue_item_id: '1', catalogue_item_name: 'Cashew 100g', quantity: 10, unit_price: 90, cost_price_at_sale: 80, item_discount_amount: 50, line_total: 850, is_bundle: false, stock_deducted: true },
+  // Sale 7 items
+  { id: 'si13', sale_id: '7', catalogue_item_id: '3', catalogue_item_name: 'Fruit & Nut Pack 200g', quantity: 4, unit_price: 320, cost_price_at_sale: 250, item_discount_amount: 0, line_total: 1280, is_bundle: true, stock_deducted: true },
+  { id: 'si14', sale_id: '7', catalogue_item_id: '2', catalogue_item_name: 'Almond 100g', quantity: 3, unit_price: 80, cost_price_at_sale: 70, item_discount_amount: 0, line_total: 240, is_bundle: false, stock_deducted: true },
+  { id: 'si15', sale_id: '7', catalogue_item_id: '6', catalogue_item_name: 'Date Box 250g', quantity: 1, unit_price: 180, cost_price_at_sale: 150, item_discount_amount: 0, line_total: 180, is_bundle: false, stock_deducted: true },
+  // Sale 8 items
+  { id: 'si16', sale_id: '8', catalogue_item_id: '4', catalogue_item_name: 'Mixed Dry Fruits 500g', quantity: 1, unit_price: 650, cost_price_at_sale: 480, item_discount_amount: 0, line_total: 650, is_bundle: true, stock_deducted: true },
+]
+
 export const mockSales = [
   { id: '1', user_id: 'mock-user-1', subtotal_amount: 450, bill_discount_amount: 0, final_amount: 450, payment_method: 'upi', sold_at: new Date().toISOString(), notes: '', customer_id: null, branch_id: null },
-  { id: '2', user_id: 'mock-user-1', subtotal_amount: 1200, bill_discount_amount: 100, final_amount: 1100, payment_method: 'cash', sold_at: new Date(Date.now() - 3600000).toISOString(), notes: 'Regular customer', customer_id: null, branch_id: null },
+  { id: '2', user_id: 'mock-user-1', subtotal_amount: 1200, bill_discount_amount: 100, final_amount: 1100, payment_method: 'cash', sold_at: new Date(Date.now() - 3600000).toISOString(), notes: 'Regular customer', customer_id: 'c1', branch_id: null },
   { id: '3', user_id: 'mock-user-1', subtotal_amount: 320, bill_discount_amount: 0, final_amount: 320, payment_method: 'card', sold_at: new Date(Date.now() - 7200000).toISOString(), notes: '', customer_id: null, branch_id: null },
+  { id: '4', user_id: 'mock-user-1', subtotal_amount: 2400, bill_discount_amount: 200, final_amount: 2200, payment_method: 'upi', sold_at: new Date(Date.now() - 86400000).toISOString(), notes: 'Bulk order — wedding', customer_id: 'c4', branch_id: null },
+  { id: '5', user_id: 'mock-user-1', subtotal_amount: 520, bill_discount_amount: 0, final_amount: 520, payment_method: 'cash', sold_at: new Date(Date.now() - 86400000 - 3600000).toISOString(), notes: '', customer_id: 'c5', branch_id: null },
+  { id: '6', user_id: 'mock-user-1', subtotal_amount: 900, bill_discount_amount: 50, final_amount: 850, payment_method: 'card', sold_at: new Date(Date.now() - 172800000).toISOString(), notes: 'Loyalty discount applied', customer_id: 'c1', branch_id: null },
+  { id: '7', user_id: 'mock-user-1', subtotal_amount: 1700, bill_discount_amount: 0, final_amount: 1700, payment_method: 'upi', sold_at: new Date(Date.now() - 259200000).toISOString(), notes: '', customer_id: 'c2', branch_id: null },
+  { id: '8', user_id: 'mock-user-1', subtotal_amount: 650, bill_discount_amount: 0, final_amount: 650, payment_method: 'cash', sold_at: new Date(Date.now() - 345600000).toISOString(), notes: '', customer_id: null, branch_id: null },
 ]
 
 export const mockDashboardStats = {
@@ -385,6 +417,23 @@ export const mockDashboardStats = {
     { name: 'Pistachio 50g', quantity: 18, revenue: 1980 },
   ],
 }
+
+export type MockCustomer = {
+  id: string
+  name: string
+  phone: string
+  description: string
+  total_orders: number
+  last_order_at: string | null
+}
+
+export const mockCustomers: MockCustomer[] = [
+  { id: 'c1', name: 'Priya Sharma', phone: '9876543210', description: 'Regular — buys gift packs weekly', total_orders: 34, last_order_at: '2024-06-18T14:30:00Z' },
+  { id: 'c2', name: 'Arun Patel', phone: '9845012345', description: 'Wholesale buyer — cashews & almonds', total_orders: 12, last_order_at: '2024-06-15T10:00:00Z' },
+  { id: 'c3', name: 'Meena Krishnan', phone: '9900112233', description: 'Monthly bulk order for office', total_orders: 8, last_order_at: '2024-06-10T16:45:00Z' },
+  { id: 'c4', name: 'Suresh Reddy', phone: '9988776655', description: 'Event caterer — seasonal orders', total_orders: 5, last_order_at: '2024-05-20T09:00:00Z' },
+  { id: 'c5', name: 'Kavitha Nair', phone: '8877665544', description: 'Health-conscious — prefers organic mix', total_orders: 19, last_order_at: '2024-06-17T11:20:00Z' },
+]
 
 export const formatINR = (amount: number): string => {
   return new Intl.NumberFormat('en-IN', {

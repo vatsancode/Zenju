@@ -4,13 +4,14 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Search, Plus, Minus, X, ShoppingCart, Tag, AlertTriangle,
   Check, Package, Trash2, Banknote, Smartphone, Percent,
+  User, Phone, ChevronDown,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   mockCatalogueItems, mockInventoryItems, mockCategories,
-  mockOffers, formatINR, mockUser,
+  mockOffers, formatINR, mockUser, mockCustomers,
 } from '@/lib/mock-data'
-import type { MockOffer } from '@/lib/mock-data'
+import type { MockOffer, MockCustomer } from '@/lib/mock-data'
 import styles from './pos.module.css'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -217,6 +218,21 @@ export default function POSPage() {
   const [billDiscountType, setBillDiscountType] = useState<'flat' | 'percent'>('percent')
   const [billDiscountValue, setBillDiscountValue] = useState<string>('')
 
+  // ── Customer state ──────────────────────────────────────────────────────────
+  const [selectedCustomer, setSelectedCustomer] = useState<MockCustomer | null>(null)
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
+  const [customerExpanded, setCustomerExpanded] = useState(false)
+  const customerRef = useRef<HTMLDivElement>(null)
+  const checkoutCustomerRef = useRef<HTMLDivElement>(null)
+
+  // ── Add Customer modal state ────────────────────────────────────────────────
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
+  const [newCustName, setNewCustName] = useState('')
+  const [newCustPhone, setNewCustPhone] = useState('')
+  const [newCustDesc, setNewCustDesc] = useState('')
+  const [localCustomers, setLocalCustomers] = useState<MockCustomer[]>(mockCustomers)
+
   // ── Toast helper ──────────────────────────────────────────────────────────────
   const showToast = useCallback((message: string, type: ToastState['type'] = 'info') => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -228,6 +244,31 @@ export default function POSPage() {
   useEffect(() => {
     searchRef.current?.focus()
   }, [])
+
+  // ── Close customer dropdown on outside click ────────────────────────────────
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (customerRef.current && !customerRef.current.contains(e.target as Node) &&
+          checkoutCustomerRef.current && !checkoutCustomerRef.current.contains(e.target as Node)) {
+        setShowCustomerDropdown(false)
+      } else if (customerRef.current && !customerRef.current.contains(e.target as Node) && !showCheckout) {
+        setShowCustomerDropdown(false)
+      } else if (checkoutCustomerRef.current && !checkoutCustomerRef.current.contains(e.target as Node) && showCheckout) {
+        setShowCustomerDropdown(false)
+      }
+    }
+    if (showCustomerDropdown) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showCustomerDropdown, showCheckout])
+
+  // ── Derived: filtered customers ──────────────────────────────────────────────
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch.trim()) return []
+    const q = customerSearch.toLowerCase()
+    return localCustomers.filter(c =>
+      c.name.toLowerCase().includes(q) || c.phone.includes(q)
+    )
+  }, [customerSearch, localCustomers])
 
   // ── Validate applied offers when cart changes ─────────────────────────────────
   useEffect(() => {
@@ -477,6 +518,9 @@ export default function POSPage() {
   function clearCart() {
     setCart([])
     setAppliedOffers([])
+    setSelectedCustomer(null)
+    setCustomerSearch('')
+    setCustomerExpanded(false)
   }
 
   function quickAddStock(stockKey: string, amount: number) {
@@ -550,7 +594,38 @@ export default function POSPage() {
     setShowCheckout(false)
     setSeenStockWarnings(new Set())
     setBillDiscountValue('')
+    setSelectedCustomer(null)
+    setCustomerSearch('')
+    setCustomerExpanded(false)
     showToast(`Sale completed — ${formatINR(finalTotal)}`, 'success')
+  }
+
+  // ── Customer handlers ─────────────────────────────────────────────────────────
+
+  function openAddCustomerModal() {
+    const isPhone = /^\d+$/.test(customerSearch.trim())
+    setNewCustName(isPhone ? '' : customerSearch.trim())
+    setNewCustPhone(isPhone ? customerSearch.trim() : '')
+    setNewCustDesc('')
+    setShowCustomerDropdown(false)
+    setShowAddCustomerModal(true)
+  }
+
+  function handleAddCustomer() {
+    if (!newCustName.trim() || !newCustPhone.trim()) return
+    const newCustomer: MockCustomer = {
+      id: `c-${Date.now()}`,
+      name: newCustName.trim(),
+      phone: newCustPhone.trim(),
+      description: newCustDesc.trim(),
+      total_orders: 0,
+      last_order_at: null,
+    }
+    setLocalCustomers(prev => [...prev, newCustomer])
+    setSelectedCustomer(newCustomer)
+    setCustomerSearch('')
+    setShowAddCustomerModal(false)
+    showToast(`${newCustomer.name} added`, 'success')
   }
 
   // ── Render helpers ────────────────────────────────────────────────────────────
@@ -668,6 +743,94 @@ export default function POSPage() {
             <button className={styles.clearCartBtn} onClick={clearCart}>
               Clear
             </button>
+          )}
+        </div>
+
+        {/* Customer section */}
+        <div className={styles.customerSection}>
+          {selectedCustomer ? (
+            <div className={styles.customerSelected}>
+              <div className={styles.customerSelectedInfo}>
+                <div className={styles.customerSelectedAvatar}>
+                  {selectedCustomer.name.charAt(0).toUpperCase()}
+                </div>
+                <div className={styles.customerSelectedDetails}>
+                  <div className={styles.customerSelectedName}>{selectedCustomer.name}</div>
+                  <div className={styles.customerSelectedPhone}>
+                    <Phone size={10} />
+                    {selectedCustomer.phone}
+                  </div>
+                </div>
+              </div>
+              <button
+                className={styles.customerRemoveBtn}
+                onClick={() => { setSelectedCustomer(null); setCustomerSearch('') }}
+                title="Remove customer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <div className={styles.customerAdd} ref={customerRef}>
+              <div className={styles.customerSearchWrap}>
+                <Search size={13} className={styles.customerSearchIcon} />
+                <input
+                  className={styles.customerSearchInput}
+                  type="text"
+                  placeholder="Add customer (name or phone)..."
+                  value={customerSearch}
+                  onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true) }}
+                  onFocus={() => { if (customerSearch.trim()) setShowCustomerDropdown(true) }}
+                />
+                <button
+                  type="button"
+                  className={styles.customerAddInlineBtn}
+                  onClick={openAddCustomerModal}
+                  title="Add new customer"
+                >
+                  <Plus size={12} />
+                  Add
+                </button>
+              </div>
+              {showCustomerDropdown && customerSearch.trim() && (
+                <div className={styles.customerDropdown}>
+                  {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map(c => (
+                      <div
+                        key={c.id}
+                        className={styles.customerDropdownItem}
+                        onClick={() => {
+                          setSelectedCustomer(c)
+                          setCustomerSearch('')
+                          setShowCustomerDropdown(false)
+                        }}
+                      >
+                        <div className={styles.customerDropdownAvatar}>
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className={styles.customerDropdownInfo}>
+                          <div className={styles.customerDropdownName}>{c.name}</div>
+                          <div className={styles.customerDropdownPhone}>{c.phone}</div>
+                          <div className={styles.customerDropdownDesc}>{c.description}</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className={styles.customerDropdownEmpty}>
+                      <p>No customers found for &ldquo;{customerSearch}&rdquo;</p>
+                      <button
+                        type="button"
+                        className={styles.customerQuickAddBtn}
+                        onClick={openAddCustomerModal}
+                      >
+                        <Plus size={13} />
+                        Add &ldquo;{customerSearch}&rdquo; as new customer
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -1045,6 +1208,95 @@ export default function POSPage() {
           >
             <h3 className="modal__title">Complete Sale</h3>
 
+            {/* Customer lookup in checkout */}
+            <div className={styles.checkoutCustomerWrap} ref={checkoutCustomerRef}>
+              <label className="form-label" style={{ marginBottom: 'var(--space-2)' }}>
+                Customer <span className="text-tertiary font-normal">(Optional)</span>
+              </label>
+              {selectedCustomer ? (
+                <div className={styles.checkoutCustomerSelected}>
+                  <div className={styles.customerSelectedAvatar} style={{ width: '28px', height: '28px', fontSize: '11px' }}>
+                    {selectedCustomer.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className={styles.customerSelectedName}>{selectedCustomer.name}</div>
+                    <div className={styles.customerSelectedPhone}>
+                      <Phone size={10} />
+                      {selectedCustomer.phone}
+                    </div>
+                  </div>
+                  <button
+                    className={styles.customerRemoveBtn}
+                    onClick={() => { setSelectedCustomer(null); setCustomerSearch('') }}
+                    title="Remove customer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ position: 'relative' }}>
+                  <div className={styles.customerSearchWrap}>
+                    <Search size={13} className={styles.customerSearchIcon} />
+                    <input
+                      className={styles.customerSearchInput}
+                      type="text"
+                      placeholder="Search by name or phone..."
+                      value={customerSearch}
+                      onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true) }}
+                      onFocus={() => { if (customerSearch.trim()) setShowCustomerDropdown(true) }}
+                    />
+                    <button
+                      type="button"
+                      className={styles.customerAddInlineBtn}
+                      onClick={openAddCustomerModal}
+                      title="Add new customer"
+                    >
+                      <Plus size={12} />
+                      Add
+                    </button>
+                  </div>
+                  {showCustomerDropdown && customerSearch.trim() && (
+                    <div className={styles.customerDropdown}>
+                      {filteredCustomers.length > 0 ? (
+                        filteredCustomers.map(c => (
+                          <div
+                            key={c.id}
+                            className={styles.customerDropdownItem}
+                            onClick={() => {
+                              setSelectedCustomer(c)
+                              setCustomerSearch('')
+                              setShowCustomerDropdown(false)
+                            }}
+                          >
+                            <div className={styles.customerDropdownAvatar}>
+                              {c.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className={styles.customerDropdownInfo}>
+                              <div className={styles.customerDropdownName}>{c.name}</div>
+                              <div className={styles.customerDropdownPhone}>{c.phone}</div>
+                              <div className={styles.customerDropdownDesc}>{c.description}</div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className={styles.customerDropdownEmpty}>
+                          <p>No customers found for &ldquo;{customerSearch}&rdquo;</p>
+                          <button
+                            type="button"
+                            className={styles.customerQuickAddBtn}
+                            onClick={openAddCustomerModal}
+                          >
+                            <Plus size={13} />
+                            Add &ldquo;{customerSearch}&rdquo; as new customer
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className={styles.checkoutSummary}>
               <div className={styles.totalRow}>
                 <span className={styles.totalLabel}>
@@ -1150,6 +1402,77 @@ export default function POSPage() {
               </button>
               <button className="btn btn--primary" onClick={handleCheckout}>
                 Confirm Sale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ ADD CUSTOMER MODAL ══════════════ */}
+      {showAddCustomerModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowAddCustomerModal(false)}
+          style={{ zIndex: 300 }}
+        >
+          <div
+            className="modal"
+            style={{ maxWidth: '400px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="modal__title">Add New Customer</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              <div className="form-group">
+                <label className="form-label form-label--required">Customer Name</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. Priya Sharma"
+                  value={newCustName}
+                  onChange={e => setNewCustName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label form-label--required">Phone Number</label>
+                <input
+                  className="form-input"
+                  type="tel"
+                  placeholder="e.g. 9876543210"
+                  value={newCustPhone}
+                  onChange={e => setNewCustPhone(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Short Description <span className="text-tertiary font-normal">(Optional)</span>
+                </label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. Regular buyer — prefers gift packs"
+                  value={newCustDesc}
+                  onChange={e => setNewCustDesc(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="modal__actions" style={{ marginTop: 'var(--space-5)' }}>
+              <button
+                className="btn btn--ghost"
+                onClick={() => setShowAddCustomerModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn--primary"
+                disabled={!newCustName.trim() || !newCustPhone.trim()}
+                onClick={handleAddCustomer}
+              >
+                Add Customer
               </button>
             </div>
           </div>

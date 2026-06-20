@@ -11,7 +11,7 @@ import {
   mockUnitConversions,
   formatINR,
 } from '@/lib/mock-data'
-import { Tag, Plus, X, Check, Search, ChevronDown, Pencil, Archive, RotateCcw } from 'lucide-react'
+import { Tag, Plus, X, Check, Search, ChevronDown, Pencil, Archive, RotateCcw, Filter } from 'lucide-react'
 import type { Category } from '@/types/database'
 import styles from './catalogue.module.css'
 
@@ -184,6 +184,28 @@ function emptyIngredient(): IngredientRow {
   }
 }
 
+// ─── Filter config ────────────────────────────────────────────────────────────
+
+const FILTER_DEFS = [
+  { key: 'type', label: 'Type' },
+  { key: 'category', label: 'Category' },
+  { key: 'status', label: 'Status' },
+] as const
+
+type FilterKey = typeof FILTER_DEFS[number]['key']
+
+const TYPE_OPTIONS = [
+  { value: 'linked', label: 'Linked' },
+  { value: 'bundle', label: 'Bundle' },
+  { value: 'independent', label: 'Service' },
+] as const
+
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'archived', label: 'Archived' },
+] as const
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CataloguePage() {
@@ -192,9 +214,13 @@ export default function CataloguePage() {
     mockCatalogueItems as CatalogueItem[]
   )
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [categoryFilters, setCategoryFilters] = useState<string[]>([])
+  const [typeFilters, setTypeFilters] = useState<string[]>([])
+  const [statusFilters, setStatusFilters] = useState<string[]>([])
+  const [activeFilterTypes, setActiveFilterTypes] = useState<FilterKey[]>([])
+  const [filterTypeDropdownOpen, setFilterTypeDropdownOpen] = useState(false)
+  const [addFilterDropdownOpen, setAddFilterDropdownOpen] = useState(false)
+  const [openValueDropdown, setOpenValueDropdown] = useState<FilterKey | null>(null)
 
   // ── Modal / drawer visibility ────────────────────────────────────────────────
   const [showCreateDrawer, setShowCreateDrawer] = useState(false)
@@ -244,12 +270,15 @@ export default function CataloguePage() {
   const [localCategories, setLocalCategories] = useState<Category[]>(mockCategories)
 
   // ── Derived: filtered table rows ─────────────────────────────────────────────
+  const tableCategories = Array.from(new Set(mockCategories.map(c => c.id)))
+  const activeFilterCount = activeFilterTypes.length
+
   const filteredItems = items.filter(item => {
     const matchesSearch =
       !search || item.name.toLowerCase().includes(search.toLowerCase())
-    const matchesCategory = !categoryFilter || item.category_id === categoryFilter
-    const matchesType = !typeFilter || item.type === typeFilter
-    const matchesStatus = !statusFilter || item.availability_status === statusFilter
+    const matchesCategory = categoryFilters.length === 0 || categoryFilters.includes(item.category_id)
+    const matchesType = typeFilters.length === 0 || typeFilters.includes(item.type)
+    const matchesStatus = statusFilters.length === 0 || statusFilters.includes(item.availability_status)
     return matchesSearch && matchesCategory && matchesType && matchesStatus
   })
 
@@ -380,6 +409,48 @@ export default function CataloguePage() {
     setImportPrices({})
     setImportSearch('')
     setImportFilter('all')
+  }
+
+  // ── Handlers: filters ────────────────────────────────────────────────────────
+  function addFilterType(key: FilterKey) {
+    setActiveFilterTypes(prev => prev.includes(key) ? prev : [...prev, key])
+    setOpenValueDropdown(key)
+    setFilterTypeDropdownOpen(false)
+    setAddFilterDropdownOpen(false)
+  }
+
+  function removeFilterType(key: FilterKey) {
+    setActiveFilterTypes(prev => prev.filter(k => k !== key))
+    if (key === 'category') setCategoryFilters([])
+    if (key === 'type') setTypeFilters([])
+    if (key === 'status') setStatusFilters([])
+    if (openValueDropdown === key) setOpenValueDropdown(null)
+  }
+
+  function clearAllFilters() {
+    setActiveFilterTypes([])
+    setCategoryFilters([])
+    setTypeFilters([])
+    setStatusFilters([])
+    setOpenValueDropdown(null)
+    setSearch('')
+  }
+
+  function getFilterValues(key: FilterKey): string[] {
+    if (key === 'category') return categoryFilters
+    if (key === 'type') return typeFilters
+    return statusFilters
+  }
+
+  function toggleFilterValue(key: FilterKey, value: string) {
+    const setter = key === 'category' ? setCategoryFilters : key === 'type' ? setTypeFilters : setStatusFilters
+    setter(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value])
+  }
+
+  function getFilterOptions(key: FilterKey): readonly { value: string; label: string }[] {
+    if (key === 'type') return TYPE_OPTIONS
+    if (key === 'status') return STATUS_OPTIONS
+    return mockCategories.filter(c => !c.parent_id).map(c => ({ value: c.id, label: c.name }))
   }
 
   // ── Handlers: create item ────────────────────────────────────────────────────
@@ -571,45 +642,157 @@ export default function CataloguePage() {
 
       {/* Filters Row */}
       <div className={styles.filtersRow}>
-        <input
-          className="form-input"
-          placeholder="Search catalogue..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <select
-          className="form-select"
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-        >
-          <option value="">All Types</option>
-          <option value="linked">Linked</option>
-          <option value="bundle">Bundle</option>
-          <option value="independent">Service</option>
-        </select>
-        <select
-          className="form-select"
-          value={categoryFilter}
-          onChange={e => setCategoryFilter(e.target.value)}
-        >
-          <option value="">All Categories</option>
-          {mockCategories.map(cat => (
-            <option key={cat.id} value={cat.id}>
-              {cat.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="form-select"
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value)}
-        >
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="archived">Archived</option>
-        </select>
+        <div className={styles.searchWrap}>
+          <input
+            className="form-input"
+            placeholder="Search items..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <div className={styles.filterWrap}>
+          <button
+            className={`btn btn--ghost ${styles.filterBtn}${activeFilterCount > 0 ? ` ${styles.filterBtnActive}` : ''}`}
+            onClick={() => { setFilterTypeDropdownOpen(v => !v); setAddFilterDropdownOpen(false) }}
+          >
+            <Filter size={14} />
+            Filter
+            {activeFilterCount > 0 && (
+              <span className={styles.filterBadge}>{activeFilterCount}</span>
+            )}
+          </button>
+          {filterTypeDropdownOpen && (
+            <>
+              <div className={styles.filterBackdrop} onClick={() => setFilterTypeDropdownOpen(false)} />
+              <div className={styles.filterDropdown}>
+                {FILTER_DEFS.map(f => (
+                  <button
+                    key={f.key}
+                    className={`${styles.filterOption}${activeFilterTypes.includes(f.key) ? ` ${styles.filterOptionActive}` : ''}`}
+                    onClick={() => addFilterType(f.key)}
+                  >
+                    {f.label}
+                    {activeFilterTypes.includes(f.key) && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Active filter bar */}
+      {(activeFilterTypes.length > 0 || search) && (
+        <div className={styles.resultSummaryRow}>
+          <span className={styles.resultSummary}>
+            <strong>{filteredItems.length}</strong> {filteredItems.length === 1 ? 'item' : 'items'}
+            <span className={styles.resultSummarySep}>•</span>
+          </span>
+
+          {activeFilterTypes.map(key => {
+            const isOpen = openValueDropdown === key
+            const selectedValues = getFilterValues(key)
+            const label = FILTER_DEFS.find(f => f.key === key)!.label
+            const options = getFilterOptions(key)
+
+            const displayText =
+              selectedValues.length === 0 ? 'Any'
+                : selectedValues.length === 1
+                  ? (options.find(o => o.value === selectedValues[0])?.label ?? selectedValues[0])
+                  : `${selectedValues.length} selected`
+
+            return (
+              <div key={key} className={styles.filterChipWrap}>
+                <div className={`${styles.filterChipInner}${isOpen ? ` ${styles.filterChipInnerOpen}` : ''}`}>
+                  <button
+                    className={styles.filterChipMain}
+                    onClick={() => setOpenValueDropdown(prev => prev === key ? null : key)}
+                  >
+                    <span className={styles.filterChipLabel}>{label}</span>
+                    <span className={`${styles.filterChipValues}${selectedValues.length > 0 ? ` ${styles.filterChipValuesActive}` : ''}`}>
+                      {displayText}
+                    </span>
+                    <ChevronDown
+                      size={11}
+                      className={`${styles.filterChipChevron}${isOpen ? ` ${styles.filterChipChevronOpen}` : ''}`}
+                    />
+                  </button>
+                  <button
+                    className={styles.filterChipRemove}
+                    onClick={() => removeFilterType(key)}
+                    title={`Remove ${label} filter`}
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+
+                {isOpen && (
+                  <>
+                    <div className={styles.filterBackdrop} onClick={() => setOpenValueDropdown(null)} />
+                    <div className={styles.valueDropdown}>
+                      {options.map(opt => {
+                        const checked = selectedValues.includes(opt.value)
+                        return (
+                          <button
+                            key={opt.value}
+                            className={`${styles.valueOption}${checked ? ` ${styles.valueOptionChecked}` : ''}`}
+                            onClick={() => toggleFilterValue(key, opt.value)}
+                          >
+                            <span className={styles.valueOptionCheck}>
+                              {checked && <Check size={10} />}
+                            </span>
+                            {opt.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
+
+          {search && (
+            <button className={styles.filterChip} onClick={() => setSearch('')} title="Clear search">
+              <span className={styles.filterChipLabel}>Search:</span>
+              <span className={styles.filterChipValue}>{search}</span>
+              <X size={12} />
+            </button>
+          )}
+
+          {FILTER_DEFS.some(f => !activeFilterTypes.includes(f.key)) && activeFilterTypes.length > 0 && (
+            <div className={styles.addFilterWrap}>
+              <button
+                className={styles.addFilterBtn}
+                onClick={() => { setAddFilterDropdownOpen(v => !v); setFilterTypeDropdownOpen(false) }}
+              >
+                <Plus size={12} />
+                Add Filter
+              </button>
+              {addFilterDropdownOpen && (
+                <>
+                  <div className={styles.filterBackdrop} onClick={() => setAddFilterDropdownOpen(false)} />
+                  <div className={styles.filterDropdown}>
+                    {FILTER_DEFS.filter(f => !activeFilterTypes.includes(f.key)).map(f => (
+                      <button
+                        key={f.key}
+                        className={styles.filterOption}
+                        onClick={() => addFilterType(f.key)}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <button className={styles.filterClearAll} onClick={clearAllFilters}>
+            Clear all
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -617,7 +800,7 @@ export default function CataloguePage() {
           <div className="empty-state">
             <p className="empty-state__title">No items found</p>
             <p className="empty-state__desc">
-              {search || categoryFilter || typeFilter || statusFilter
+              {search || categoryFilters.length > 0 || typeFilters.length > 0 || statusFilters.length > 0
                 ? 'Try adjusting your filters'
                 : 'Add inventory items with a selling price, or create a bundle here'}
             </p>
