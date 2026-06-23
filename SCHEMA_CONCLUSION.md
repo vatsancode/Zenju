@@ -297,6 +297,105 @@ units (business_id)
 
 ---
 
+## POS
+
+### Table 16 — `customers`
+One row per customer per business. Searchable by name or phone at POS. Tags applied via `entity_tags` (entity_type = 'customer') — no separate column needed.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `name` | TEXT | Full name — searchable at POS |
+| `phone` | TEXT | Primary lookup identifier |
+| `email` | TEXT | Optional |
+| `birthday` | DATE | Optional — for future loyalty and seasonal offers |
+| `address` | TEXT | Optional — for future delivery support |
+| `notes` | TEXT | e.g. "Bulk buyer, prefers cashews" |
+| `created_at` | TIMESTAMP | Auto-set |
+
+---
+
+### Table 17 — `sales`
+One row per completed transaction. The bill header. Walk-in sales allowed — `customer_id` is nullable but always populated when customer is known.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `branch_id` | UUID | NULL for now — reserved for v2 branches |
+| `customer_id` | UUID | NULL = walk-in, set = known customer |
+| `subtotal` | DECIMAL | Total before bill-level discount |
+| `bill_discount_amount` | DECIMAL | Discount applied to the whole bill |
+| `bill_discount_type` | TEXT | `'flat'` / `'percentage'` |
+| `tax_total` | DECIMAL | Total tax collected |
+| `final_amount` | DECIMAL | What the customer actually paid |
+| `payment_method` | TEXT | `'cash'` / `'upi'` / `'card'` |
+| `notes` | TEXT | Optional note on the sale |
+| `created_at` | TIMESTAMP | Auto-set — this is the sale timestamp |
+
+---
+
+### Table 18 — `sale_items`
+One row per line item on the bill. Prices and names are snapshotted at time of sale so history stays accurate even if catalogue changes later.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `sale_id` | UUID | FK → sales.id |
+| `catalogue_item_id` | UUID | FK → catalogue_items.id |
+| `variant_id` | UUID | FK → inventory_variants.id — NULL if no variant |
+| `catalogue_item_name` | TEXT | Snapshot — name at time of sale |
+| `quantity` | DECIMAL | How many units sold |
+| `unit_price` | DECIMAL | Snapshot — price at time of sale |
+| `cost_price_at_sale` | DECIMAL | Snapshot — cost price for profit calculation |
+| `item_discount_amount` | DECIMAL | Discount applied to this line item |
+| `tax_amount` | DECIMAL | Tax on this line item |
+| `line_total` | DECIMAL | Final amount after discount + tax |
+| `applied_offer_id` | UUID | NULL = no offer, set = offer that gave this discount |
+| `stock_deducted` | BOOLEAN | False in v1 — activates in v2 when stock logic runs |
+| `created_at` | TIMESTAMP | Auto-set |
+
+**Snapshot rule:** `catalogue_item_name`, `unit_price`, and `cost_price_at_sale` are copied at the moment of sale and never updated. Historical accuracy depends on this.
+
+**Offer analytics note:** `applied_offer_id` is stored now so "offer X discounted item Y N times" is queryable in future without any schema change.
+
+---
+
+### Table 19 — `stock_movements`
+Audit log of every stock change. Table created in v1, write logic activates in v2. Once active, every sale, purchase, waste, and manual adjustment leaves a permanent trail here.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `variant_id` | UUID | FK → inventory_variants.id |
+| `branch_id` | UUID | NULL for now — reserved for v2 |
+| `movement_type` | TEXT | `'sale'` / `'purchase'` / `'manual_adjustment'` / `'waste'` |
+| `quantity_change` | DECIMAL | Negative = stock out, Positive = stock in |
+| `reference_id` | UUID | The sale ID or purchase ID that caused this movement |
+| `reference_type` | TEXT | `'sale'` / `'purchase'` / `'manual'` |
+| `notes` | TEXT | Optional reason for manual adjustments |
+| `created_at` | TIMESTAMP | Auto-set |
+
+---
+
+## POS Relationships
+```
+customers (business_id)
+  └── entity_tags (entity_type = 'customer') ← tags
+
+sales (business_id, branch_id, customer_id)
+  └── sale_items
+        ├── catalogue_item_id → catalogue_items
+        ├── variant_id        → inventory_variants
+        └── applied_offer_id  → offers
+
+sale_items → stock_movements (v2)
+```
+
+---
+
 ## Full Table Index
 
 | # | Table | Module | One-line description |
@@ -308,11 +407,15 @@ units (business_id)
 | 5 | `variant_stock` | Inventory | Live stock quantity per variant, branch-aware |
 | 6 | `categories` | Global | Categories + subcategories in one self-referencing table |
 | 7 | `tags` | Global | Business-wide master tag list |
-| 8 | `entity_tags` | Global | Bridge — connects tags to any entity |
+| 8 | `entity_tags` | Global | Bridge — connects tags to any entity type |
 | 9 | `catalogue_items` | Catalogue | The menu — what you sell |
 | 10 | `catalogue_components` | Catalogue | Recipe — which inventory items each item uses |
 | 11 | `catalogue_component_variants` | Catalogue | Which variants are selectable per component |
-| 12 | `offers` | Catalogue | Deals with flexible JSONB config |
+| 12 | `offers` | Catalogue | Deals with flexible JSONB benefit_config |
 | 13 | `offer_items` | Catalogue | Which catalogue items each offer covers |
 | 14 | `units` | Units | Measurement units per business |
 | 15 | `unit_conversions` | Units | Conversion rates between units |
+| 16 | `customers` | POS | Customer profiles — searchable by name or phone |
+| 17 | `sales` | POS | Bill header — one row per completed transaction |
+| 18 | `sale_items` | POS | Line items with price + name snapshots and offer tracking |
+| 19 | `stock_movements` | POS | Audit log of every stock change — planted in v1, active in v2 |
