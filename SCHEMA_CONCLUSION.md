@@ -55,7 +55,7 @@ Each unique version of a product. Holds default pricing and thresholds.
 | `id` | UUID v7 | Primary key |
 | `inventory_item_id` | UUID | FK → inventory_items.id |
 | `variant_code` | TEXT | e.g. VAR-001 |
-| `purchase_price` | DECIMAL | Default cost price |
+| `purchase_price` | DECIMAL | Latest or weighted-average cost price — convenience field, not source of truth once batches exist |
 | `selling_price` | DECIMAL | Default selling price / MRP |
 | `par_stock` | DECIMAL | Default minimum stock threshold |
 | `availability_status` | TEXT | `active` / `inactive` |
@@ -96,20 +96,61 @@ For `selling_price`, `par_stock`, and `availability_status` — always check `va
 
 ---
 
+### Table 6 — `suppliers`
+One row per vendor/supplier a business purchases from. Linked to batches, not to items — the same supplier can supply different items across different batches.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `name` | TEXT | Vendor/supplier name |
+| `phone` | TEXT | Optional contact number |
+| `email` | TEXT | Optional |
+| `address` | TEXT | Optional |
+| `notes` | TEXT | Optional — e.g. "Reliable for nuts, slow on spices" |
+| `created_at` | TIMESTAMP | Auto-set |
+
+---
+
+### Table 7 — `inventory_batches`
+One row per purchase batch of a variant. Tracks vendor, cost, quantity, and expiry at the batch level. Multiple batches can exist for the same variant — each with its own price, supplier, and expiry.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `variant_id` | UUID | FK → inventory_variants.id |
+| `branch_id` | UUID | NULL for now — which branch received this batch |
+| `supplier_id` | UUID | FK → suppliers.id — who you bought from |
+| `purchase_price` | DECIMAL | Cost per unit in this batch |
+| `quantity_received` | DECIMAL | How much came in |
+| `quantity_remaining` | DECIMAL | How much is still unsold/unused |
+| `expiry_date` | DATE | NULL if non-perishable — actual expiry of this batch |
+| `batch_number` | TEXT | Optional — vendor's own batch/lot label |
+| `received_at` | TIMESTAMP | When this batch was received |
+| `created_at` | TIMESTAMP | Auto-set |
+
+**Stock sync rule:** `variant_stock.current_stock` should equal the SUM of `quantity_remaining` across all batches for that variant + branch. Kept in sync via application logic (future: database trigger).
+
+**Sale deduction (future):** When a sale happens, batches are picked using FEFO (first-expiry, first-out) for perishable items, or FIFO (first-in, first-out) for non-perishable. Sale-to-batch linking will be implemented when the sale flow is connected.
+
+---
+
 ### Relationships
 ```
 inventory_items
   ├── attribute_definitions
   └── inventory_variants
         ├── variant_attribute_values → attribute_definitions
-        └── variant_stock
+        ├── variant_stock
+        └── inventory_batches → suppliers
 ```
 
 ---
 
 ## Catalogue
 
-### Table 6 — `categories`
+### Table 8 — `categories`
 Handles both categories and subcategories in one table using a self-referencing `parent_id`. No separate subcategory table needed.
 
 | Column | Type | Notes |
@@ -126,7 +167,7 @@ Handles both categories and subcategories in one table using a self-referencing 
 
 ---
 
-### Table 7 — `tags`
+### Table 9 — `tags`
 Business-wide master list of tags. Tags are shared across the whole business — not locked to catalogue or inventory. One business owns its own set of tags.
 
 | Column | Type | Notes |
@@ -142,7 +183,7 @@ Business-wide master list of tags. Tags are shared across the whole business —
 
 ---
 
-### Table 8 — `entity_tags`
+### Table 10 — `entity_tags`
 Bridge table connecting tags to any entity in the system — catalogue items today, inventory items or anything else in future. Uses `entity_type` to know what it's tagging.
 
 | Column | Type | Notes |
@@ -155,7 +196,7 @@ Bridge table connecting tags to any entity in the system — catalogue items tod
 
 ---
 
-### Table 9 — `catalogue_items`
+### Table 11 — `catalogue_items`
 The menu — one row per thing a business sells. Three types: linked (1 inventory item), bundle (multiple inventory items), independent (service, no stock).
 
 | Column | Type | Notes |
@@ -178,7 +219,7 @@ The menu — one row per thing a business sells. Three types: linked (1 inventor
 
 ---
 
-### Table 10 — `catalogue_components`
+### Table 12 — `catalogue_components`
 The recipe. Links each catalogue item to the inventory items it uses, with quantity and unit per sale. One catalogue item can point to the same inventory item with different units (e.g. Sugar 1 KG and Sugar 500g both link to the same Sugar inventory item).
 
 | Column | Type | Notes |
@@ -195,7 +236,7 @@ The recipe. Links each catalogue item to the inventory items it uses, with quant
 
 ---
 
-### Table 11 — `catalogue_component_variants`
+### Table 13 — `catalogue_component_variants`
 Controls which specific variants of an inventory item are selectable at POS for a given component. If no rows exist for a component, all variants are available.
 
 | Column | Type | Notes |
@@ -206,7 +247,7 @@ Controls which specific variants of an inventory item are selectable at POS for 
 
 ---
 
-### Table 12 — `offers`
+### Table 14 — `offers`
 Deals and promotions. `benefit_type` is a plain label. `benefit_config` is JSONB — stores the actual rules for that offer type. Adding new offer types in future requires zero database changes.
 
 | Column | Type | Notes |
@@ -236,7 +277,7 @@ New offer types can be added by defining a new label and config shape — no mig
 
 ---
 
-### Table 13 — `offer_items`
+### Table 15 — `offer_items`
 Bridge between offers and catalogue items. Defines which items qualify for an offer.
 
 | Column | Type | Notes |
@@ -249,7 +290,7 @@ Bridge between offers and catalogue items. Defines which items qualify for an of
 
 ## Units
 
-### Table 14 — `units`
+### Table 16 — `units`
 Master list of measurement units per business. Businesses can create custom units. Units are locked once used in inventory to prevent data inconsistency.
 
 | Column | Type | Notes |
@@ -264,7 +305,7 @@ Master list of measurement units per business. Businesses can create custom unit
 
 ---
 
-### Table 15 — `unit_conversions`
+### Table 17 — `unit_conversions`
 Conversion factors between units. Only one direction needs to be defined — the system calculates the reverse automatically.
 
 | Column | Type | Notes |
@@ -299,7 +340,7 @@ units (business_id)
 
 ## POS
 
-### Table 16 — `customers`
+### Table 18 — `customers`
 One row per customer per business. Searchable by name or phone at POS. Tags applied via `entity_tags` (entity_type = 'customer') — no separate column needed.
 
 | Column | Type | Notes |
@@ -316,7 +357,7 @@ One row per customer per business. Searchable by name or phone at POS. Tags appl
 
 ---
 
-### Table 17 — `sales`
+### Table 19 — `sales`
 One row per completed transaction. The bill header. Walk-in sales allowed — `customer_id` is nullable but always populated when customer is known.
 
 | Column | Type | Notes |
@@ -336,7 +377,7 @@ One row per completed transaction. The bill header. Walk-in sales allowed — `c
 
 ---
 
-### Table 18 — `sale_items`
+### Table 20 — `sale_items`
 One row per line item on the bill. Prices and names are snapshotted at time of sale so history stays accurate even if catalogue changes later.
 
 | Column | Type | Notes |
@@ -362,7 +403,7 @@ One row per line item on the bill. Prices and names are snapshotted at time of s
 
 ---
 
-### Table 19 — `stock_movements`
+### Table 21 — `stock_movements`
 Audit log of every stock change. Table created in v1, write logic activates in v2. Once active, every sale, purchase, waste, and manual adjustment leaves a permanent trail here.
 
 | Column | Type | Notes |
@@ -405,17 +446,19 @@ sale_items → stock_movements (v2)
 | 3 | `inventory_variants` | Inventory | Each unique version of a product |
 | 4 | `variant_attribute_values` | Inventory | Attribute values per variant |
 | 5 | `variant_stock` | Inventory | Live stock quantity per variant, branch-aware |
-| 6 | `categories` | Global | Categories + subcategories in one self-referencing table |
-| 7 | `tags` | Global | Business-wide master tag list |
-| 8 | `entity_tags` | Global | Bridge — connects tags to any entity type |
-| 9 | `catalogue_items` | Catalogue | The menu — what you sell |
-| 10 | `catalogue_components` | Catalogue | Recipe — which inventory items each item uses |
-| 11 | `catalogue_component_variants` | Catalogue | Which variants are selectable per component |
-| 12 | `offers` | Catalogue | Deals with flexible JSONB benefit_config |
-| 13 | `offer_items` | Catalogue | Which catalogue items each offer covers |
-| 14 | `units` | Units | Measurement units per business |
-| 15 | `unit_conversions` | Units | Conversion rates between units |
-| 16 | `customers` | POS | Customer profiles — searchable by name or phone |
-| 17 | `sales` | POS | Bill header — one row per completed transaction |
-| 18 | `sale_items` | POS | Line items with price + name snapshots and offer tracking |
-| 19 | `stock_movements` | POS | Audit log of every stock change — planted in v1, active in v2 |
+| 6 | `suppliers` | Inventory | Vendor/supplier profiles |
+| 7 | `inventory_batches` | Inventory | Per-purchase batch — vendor, cost, qty, expiry per variant |
+| 8 | `categories` | Global | Categories + subcategories in one self-referencing table |
+| 9 | `tags` | Global | Business-wide master tag list |
+| 10 | `entity_tags` | Global | Bridge — connects tags to any entity type |
+| 11 | `catalogue_items` | Catalogue | The menu — what you sell |
+| 12 | `catalogue_components` | Catalogue | Recipe — which inventory items each item uses |
+| 13 | `catalogue_component_variants` | Catalogue | Which variants are selectable per component |
+| 14 | `offers` | Catalogue | Deals with flexible JSONB benefit_config |
+| 15 | `offer_items` | Catalogue | Which catalogue items each offer covers |
+| 16 | `units` | Units | Measurement units per business |
+| 17 | `unit_conversions` | Units | Conversion rates between units |
+| 18 | `customers` | POS | Customer profiles — searchable by name or phone |
+| 19 | `sales` | POS | Bill header — one row per completed transaction |
+| 20 | `sale_items` | POS | Line items with price + name snapshots and offer tracking |
+| 21 | `stock_movements` | POS | Audit log of every stock change — planted in v1, active in v2 |

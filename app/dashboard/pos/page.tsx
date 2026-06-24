@@ -227,6 +227,7 @@ export default function POSPage() {
   const checkoutCustomerRef = useRef<HTMLDivElement>(null)
 
   // ── Add Customer modal state ────────────────────────────────────────────────
+  const [cashReceived, setCashReceived] = useState<string>('')
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
   const [newCustName, setNewCustName] = useState('')
   const [newCustPhone, setNewCustPhone] = useState('')
@@ -1099,7 +1100,7 @@ export default function POSPage() {
           <button
             className={styles.checkoutBtn}
             disabled={cart.length === 0}
-            onClick={() => setShowCheckout(true)}
+            onClick={() => { setCashReceived(''); setShowCheckout(true) }}
           >
             Complete Sale
           </button>
@@ -1377,6 +1378,42 @@ export default function POSPage() {
                 <div>UPI</div>
               </button>
             </div>
+
+            {/* Cash tendering */}
+            {paymentMethod === 'cash' && (
+              <div className={styles.cashTenderWrap}>
+                <label className="form-label" style={{ marginBottom: 'var(--space-2)' }}>
+                  Amount Received
+                </label>
+                <div className={styles.cashInputRow}>
+                  <span className={styles.cashCurrencyPrefix}>₹</span>
+                  <input
+                    className={`form-input ${styles.cashInput}`}
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={cashReceived}
+                    onChange={e => setCashReceived(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                {(() => {
+                  const received = parseFloat(cashReceived) || 0
+                  if (received <= 0) return null
+                  const change = received - finalTotal
+                  return (
+                    <div className={`${styles.cashChangeRow} ${change < 0 ? styles.cashChangeShort : ''}`}>
+                      <span className={styles.cashChangeLabel}>
+                        {change >= 0 ? 'Return Change' : 'Amount Short'}
+                      </span>
+                      <span className={styles.cashChangeValue}>
+                        {formatINR(Math.abs(change))}
+                      </span>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
 
             {/* UPI QR code */}
             {paymentMethod === 'upi' && (

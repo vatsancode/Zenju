@@ -1176,6 +1176,68 @@
 
 /* ── UPI QR ──────────────────────────────────────────────── */
 
+/* ── Cash Tendering ── */
+
+.cashTenderWrap {
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  animation: fadeScaleIn 0.15s ease;
+}
+
+.cashInputRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cashCurrencyPrefix {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.cashInput {
+  flex: 1;
+  font-size: var(--text-lg) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em;
+}
+
+.cashChangeRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: hsla(var(--success-h, 142) var(--success-s, 76%) var(--success-l, 36%) / 0.1);
+  border: 1px solid hsla(var(--success-h, 142) var(--success-s, 76%) var(--success-l, 36%) / 0.25);
+}
+
+.cashChangeRow.cashChangeShort {
+  background: hsla(var(--danger-h, 0) var(--danger-s, 84%) var(--danger-l, 60%) / 0.1);
+  border-color: hsla(var(--danger-h, 0) var(--danger-s, 84%) var(--danger-l, 60%) / 0.25);
+}
+
+.cashChangeLabel {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.cashChangeValue {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.cashChangeShort .cashChangeValue {
+  color: var(--color-danger);
+}
+
 .upiQrWrap {
   display: flex;
   flex-direction: column;
