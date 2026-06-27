@@ -513,6 +513,12 @@ sale_items → stock_movements (v2)
 
 > An index is like the index at the back of a book — instead of reading every row, the database jumps straight to the matching ones. Every column you filter or sort by needs one.
 
+### Required Extensions
+```sql
+-- Enable before creating any text search or partial indexes
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+```
+
 ### Inventory
 ```sql
 CREATE INDEX ON inventory_items(business_id);
@@ -545,6 +551,30 @@ CREATE INDEX ON sale_items(catalogue_item_id);
 CREATE INDEX ON stock_movements(variant_id, created_at);
 CREATE INDEX ON stock_movements(reference_id, reference_type);
 ```
+
+### Text Search (GIN + pg_trgm)
+> Enables partial word matching at the POS — typing "Rah" finds "Rahul", typing "Cash" finds "Cashew 100g". Without these, every keystroke is a full table scan.
+
+```sql
+CREATE INDEX ON customers       USING gin(name gin_trgm_ops);
+CREATE INDEX ON inventory_items USING gin(name gin_trgm_ops);
+CREATE INDEX ON catalogue_items USING gin(name gin_trgm_ops);
+```
+
+### Partial Indexes (Active Rows Only)
+> Only indexes rows that are actually in use — ignores deleted/archived rows entirely. Smaller index, faster query. Must be added alongside any `deleted_at` soft-delete column.
+
+```sql
+-- Active inventory and catalogue (once deleted_at column is added)
+CREATE INDEX ON inventory_items(business_id) WHERE deleted_at IS NULL;
+CREATE INDEX ON catalogue_items(business_id) WHERE deleted_at IS NULL;
+CREATE INDEX ON customers(business_id)       WHERE deleted_at IS NULL;
+
+-- Active offers — checked on every sale at POS
+CREATE INDEX ON offers(business_id, active)  WHERE active = true;
+```
+
+**Note:** `deleted_at` columns are a P0 improvement from the expert panel review. These partial indexes must be created at the same migration as those columns.
 
 ---
 
