@@ -527,11 +527,14 @@ CREATE INDEX ON inventory_variants(inventory_item_id);
 CREATE UNIQUE INDEX ON variant_stock(variant_id, branch_id);
 CREATE INDEX ON inventory_batches(variant_id, branch_id);
 CREATE INDEX ON inventory_batches(expiry_date);
+CREATE INDEX ON inventory_batches(supplier_id);    -- "what did I buy from this supplier?"
+CREATE INDEX ON suppliers(business_id);             -- supplier list lookup
 ```
 
 ### Catalogue
 ```sql
 CREATE INDEX ON catalogue_items(business_id, availability_status);
+CREATE INDEX ON catalogue_items(business_id, branch_id);   -- POS: load items for current branch
 CREATE INDEX ON catalogue_items(category_id);
 CREATE INDEX ON catalogue_components(catalogue_item_id);
 CREATE INDEX ON categories(business_id, parent_id);
@@ -545,10 +548,13 @@ CREATE UNIQUE INDEX ON unit_conversions(business_id, from_unit_id, to_unit_id);
 CREATE UNIQUE INDEX ON customers(business_id, phone);
 CREATE INDEX ON customers(business_id, name);
 CREATE INDEX ON sales(business_id, created_at);
+CREATE INDEX ON sales(branch_id);                              -- branch-level revenue reports
 CREATE INDEX ON sales(customer_id);
 CREATE INDEX ON sale_items(sale_id);
 CREATE INDEX ON sale_items(catalogue_item_id);
+CREATE INDEX ON sale_items(variant_id);                        -- variant-level sales analytics
 CREATE INDEX ON stock_movements(variant_id, created_at);
+CREATE INDEX ON stock_movements(movement_type);                -- filter by waste / purchase / manual
 CREATE INDEX ON stock_movements(reference_id, reference_type);
 ```
 
