@@ -1,5 +1,5 @@
 # Schema Conclusion
-> Final agreed database structure decisions. This is the single source of truth for all database design decisions.
+> Final agreed database structure decisions. Single source of truth for all database design decisions.
 
 ---
 
@@ -153,14 +153,14 @@ For `selling_price`, `par_stock`, and `availability_status` — always check `va
 ---
 
 ### Table 6 — `suppliers`
-One row per vendor/supplier a business purchases from. Linked to batches, not to items — the same supplier can supply different items across different batches.
+One row per vendor/supplier a business purchases from.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | Primary key |
 | `business_id` | UUID | FK → businesses.id |
 | `name` | TEXT | Vendor/supplier name |
-| `phone` | TEXT | Optional contact number |
+| `phone` | TEXT | Optional |
 | `email` | TEXT | Optional |
 | `address` | TEXT | Optional |
 | `notes` | TEXT | Optional — e.g. "Reliable for nuts, slow on spices" |
@@ -169,7 +169,7 @@ One row per vendor/supplier a business purchases from. Linked to batches, not to
 ---
 
 ### Table 7 — `inventory_batches`
-One row per purchase batch of a variant. Tracks vendor, cost, quantity, and expiry at the batch level. Multiple batches can exist for the same variant — each with its own price, supplier, and expiry.
+One row per purchase batch of a variant. Tracks vendor, cost, quantity, and expiry at the batch level.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -177,18 +177,18 @@ One row per purchase batch of a variant. Tracks vendor, cost, quantity, and expi
 | `business_id` | UUID | FK → businesses.id |
 | `variant_id` | UUID | FK → inventory_variants.id |
 | `branch_id` | UUID | FK → branches.id — which branch received this batch |
-| `supplier_id` | UUID | FK → suppliers.id — who you bought from |
+| `supplier_id` | UUID | FK → suppliers.id |
 | `purchase_price` | DECIMAL | Cost per unit in this batch |
 | `quantity_received` | DECIMAL | How much came in |
 | `quantity_remaining` | DECIMAL | How much is still unsold/unused |
-| `expiry_date` | DATE | NULL if non-perishable — actual expiry of this batch |
+| `expiry_date` | DATE | NULL if non-perishable |
 | `batch_number` | TEXT | Optional — vendor's own batch/lot label |
 | `received_at` | TIMESTAMP | When this batch was received |
 | `created_at` | TIMESTAMP | Auto-set |
 
 **Stock sync rule:** `variant_stock.current_stock` must equal the SUM of `quantity_remaining` across all active batches for that variant + branch. Both must be updated inside the same database transaction — never separately.
 
-**Sale deduction (future):** Batches are picked using FEFO (first-expiry, first-out) for perishable items, or FIFO (first-in, first-out) for non-perishable.
+**Sale deduction (future):** Batches are picked using FEFO (first-expiry, first-out) for perishables, FIFO (first-in, first-out) for non-perishables.
 
 ---
 
@@ -224,7 +224,7 @@ Handles both categories and subcategories in one table using a self-referencing 
 ---
 
 ### Table 9 — `tags`
-Business-wide master list of tags. Tags are shared across the whole business — not locked to catalogue or inventory. One business owns its own set of tags.
+Business-wide master list of tags. Tags are shared across the whole business.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -232,15 +232,13 @@ Business-wide master list of tags. Tags are shared across the whole business —
 | `business_id` | UUID | FK → businesses.id |
 | `name` | TEXT | e.g. "seasonal", "bestseller", "gift" |
 | `color` | TEXT | Optional hex color for UI display |
-| `description` | TEXT | Optional — what this tag means |
+| `description` | TEXT | Optional |
 | `created_at` | TIMESTAMP | Auto-set |
-
-**Why not a TEXT array on catalogue_items:** Separate table allows analytics by tag, rename propagates instantly, clean metadata for vector DB injection, and tags can be applied to any entity (not just catalogue items).
 
 ---
 
 ### Table 10 — `entity_tags`
-Bridge table connecting tags to any entity in the system — catalogue items today, inventory items or customers in future. Uses `entity_type` to know what it's tagging.
+Bridge table connecting tags to any entity in the system.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -257,7 +255,7 @@ Bridge table connecting tags to any entity in the system — catalogue items tod
 ---
 
 ### Table 11 — `catalogue_items`
-The menu — one row per thing a business sells. Three types: linked (1 inventory item), bundle (multiple inventory items), independent (service, no stock).
+The menu — one row per thing a business sells.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -266,21 +264,19 @@ The menu — one row per thing a business sells. Three types: linked (1 inventor
 | `name` | TEXT | e.g. "Cashew 100g" |
 | `category_id` | UUID | FK → categories.id |
 | `type` | TEXT | `'linked'` / `'bundle'` / `'independent'` |
-| `selling_price` | DECIMAL | Default price — treated as override base for channels |
+| `selling_price` | DECIMAL | Default price |
 | `taxes` | JSONB | `[{name, percentage, inclusive}]` |
 | `tax_inclusive` | BOOLEAN | Is tax already inside the selling price? |
-| `inventory_tracking` | BOOLEAN | Should a sale deduct stock? Always false for independent |
+| `inventory_tracking` | BOOLEAN | Should a sale deduct stock? |
 | `availability_status` | TEXT | `'active'` / `'inactive'` / `'archived'` |
 | `notes` | TEXT | Internal notes |
 | `branch_id` | UUID | NULL = visible in all branches, set = this branch only |
 | `created_at` | TIMESTAMP | Auto-set |
 
-**Type rule:** `type` is stored explicitly for query performance, but is always consistent with the number of component rows — 0 components = independent, 1 = linked, 2+ = bundle.
-
 ---
 
 ### Table 12 — `catalogue_components`
-The recipe. Links each catalogue item to the inventory items it uses, with quantity and unit per sale.
+The recipe. Links each catalogue item to the inventory items it uses.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -299,7 +295,7 @@ The recipe. Links each catalogue item to the inventory items it uses, with quant
 ---
 
 ### Table 13 — `catalogue_component_variants`
-Controls which specific variants of an inventory item are selectable at POS for a given component. If no rows exist for a component, all variants are available.
+Controls which specific variants are selectable at POS for a given component.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -310,21 +306,21 @@ Controls which specific variants of an inventory item are selectable at POS for 
 ---
 
 ### Table 14 — `offers`
-Deals and promotions. `benefit_type` is a plain label. `benefit_config` is JSONB — stores the actual rules for that offer type. Adding new offer types in future requires zero database changes.
+Deals and promotions with flexible JSONB config.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | Primary key |
 | `business_id` | UUID | FK → businesses.id |
-| `channel_id` | UUID | NULL = all channels, set = specific channel only |
+| `channel_id` | UUID | NULL = all channels, set = specific channel |
 | `name` | TEXT | e.g. "Buy 3 Get 1 Free" |
-| `min_quantity` | INTEGER | Minimum cart quantity to trigger this offer |
+| `min_quantity` | INTEGER | Minimum cart quantity to trigger |
 | `benefit_type` | TEXT | Label — see benefit types below |
-| `benefit_config` | JSONB | Rules for that type — any shape |
+| `benefit_config` | JSONB | Rules for that type |
 | `active` | BOOLEAN | Is this offer currently running? |
 | `created_at` | TIMESTAMP | Auto-set |
 
-**Benefit types and their config shape:**
+**Benefit types:**
 
 | benefit_type | benefit_config example | Meaning |
 |---|---|---|
@@ -332,15 +328,13 @@ Deals and promotions. `benefit_type` is a plain label. `benefit_config` is JSONB
 | `flat_discount` | `{"value": 500}` | ₹500 off total |
 | `fixed_price` | `{"value": 230}` | Whole combo for ₹230 |
 | `free_item` | `{"select": "cheapest"}` | Cheapest item is free |
-| `buy_x_get_y` | `{"buy_item_id": "x", "buy_qty": 3, "get_item_id": "y", "get_qty": 1}` | Buy 3 get 1 specific item free |
+| `buy_x_get_y` | `{"buy_item_id": "x", "buy_qty": 3, "get_item_id": "y", "get_qty": 1}` | Buy 3 get 1 free |
 | `tiered_pricing` | `{"tiers": [{"min": 1, "max": 5, "price": 90}, {"min": 6, "price": 80}]}` | Price drops as quantity rises |
-
-New offer types can be added by defining a new label and config shape — no migration needed.
 
 ---
 
 ### Table 15 — `offer_items`
-Bridge between offers and catalogue items. Defines which items qualify for an offer.
+Bridge between offers and catalogue items.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -353,7 +347,7 @@ Bridge between offers and catalogue items. Defines which items qualify for an of
 ## Units
 
 ### Table 16 — `units`
-Master list of measurement units per business. Businesses can create custom units. Units are locked once used in inventory to prevent data inconsistency.
+Master list of measurement units per business.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -361,14 +355,14 @@ Master list of measurement units per business. Businesses can create custom unit
 | `business_id` | UUID | FK → businesses.id |
 | `name` | TEXT | e.g. "Kilogram" |
 | `abbreviation` | TEXT | e.g. "KG" |
-| `allows_decimal` | BOOLEAN | Can you sell 1.5 of this? Yes for KG, No for Pieces |
+| `allows_decimal` | BOOLEAN | Can you sell 1.5 of this? |
 | `is_locked` | BOOLEAN | True once used in inventory — cannot be deleted |
 | `created_at` | TIMESTAMP | Auto-set |
 
 ---
 
 ### Table 17 — `unit_conversions`
-Conversion factors between units. Only one direction needs to be defined — the system calculates the reverse automatically.
+Conversion factors between units.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -379,7 +373,7 @@ Conversion factors between units. Only one direction needs to be defined — the
 | `factor` | DECIMAL | Multiply from_unit by this to get to_unit |
 | `created_at` | TIMESTAMP | Auto-set |
 
-**Example:** from=KG, to=Grams, factor=1000 → means 1 KG = 1000 Grams. System automatically knows 1 Gram = 0.001 KG.
+**Example:** from=KG, to=Grams, factor=1000. System automatically derives the reverse: 1 Gram = 0.001 KG.
 
 **Unique constraint:** `(business_id, from_unit_id, to_unit_id)` — only one conversion per pair per business. Prevents two entries with conflicting factors for the same unit pair.
 
@@ -404,7 +398,7 @@ units → unit_conversions
 ## POS
 
 ### Table 18 — `customers`
-One row per customer per business. Searchable by name or phone at POS. Tags applied via `entity_tags` (entity_type = 'customer') — no separate column needed.
+One row per customer per business.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -413,9 +407,9 @@ One row per customer per business. Searchable by name or phone at POS. Tags appl
 | `name` | TEXT | Full name — searchable at POS |
 | `phone` | TEXT | Primary lookup identifier |
 | `email` | TEXT | Optional |
-| `birthday` | DATE | Optional — for future loyalty and seasonal offers |
-| `address` | TEXT | Optional — for future delivery support |
-| `notes` | TEXT | e.g. "Bulk buyer, prefers cashews" |
+| `birthday` | DATE | Optional |
+| `address` | TEXT | Optional |
+| `notes` | TEXT | Optional |
 | `created_at` | TIMESTAMP | Auto-set |
 
 **Unique constraint:** `(business_id, phone)` — one customer record per phone number per business. Prevents duplicates on POS lookup.
@@ -423,7 +417,7 @@ One row per customer per business. Searchable by name or phone at POS. Tags appl
 ---
 
 ### Table 19 — `sales`
-One row per completed transaction. The bill header. Walk-in sales allowed — `customer_id` is nullable but always populated when customer is known.
+One row per completed transaction.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -432,12 +426,12 @@ One row per completed transaction. The bill header. Walk-in sales allowed — `c
 | `branch_id` | UUID | FK → branches.id |
 | `customer_id` | UUID | NULL = walk-in, set = known customer |
 | `subtotal` | DECIMAL | Total before bill-level discount |
-| `bill_discount_amount` | DECIMAL | Discount applied to the whole bill |
+| `bill_discount_amount` | DECIMAL | Discount applied to whole bill |
 | `bill_discount_type` | TEXT | `'flat'` / `'percentage'` — CHECK constraint enforced |
 | `tax_total` | DECIMAL | Total tax collected |
 | `final_amount` | DECIMAL | What the customer actually paid |
 | `payment_method` | TEXT | `'cash'` / `'upi'` / `'card'` — CHECK constraint enforced |
-| `notes` | TEXT | Optional note on the sale |
+| `notes` | TEXT | Optional |
 | `created_at` | TIMESTAMP | Auto-set — this is the sale timestamp |
 
 **Scaling note:** This table grows forever. Plan for monthly partitioning by `created_at` before it exceeds 500k rows. Always filter queries with a date range — this keeps queries fast by only scanning one month's data at a time.
@@ -445,7 +439,7 @@ One row per completed transaction. The bill header. Walk-in sales allowed — `c
 ---
 
 ### Table 20 — `sale_items`
-One row per line item on the bill. Prices and names are snapshotted at time of sale so history stays accurate even if catalogue changes later.
+One row per line item. Prices and names are snapshotted at time of sale — never updated.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -460,18 +454,14 @@ One row per line item on the bill. Prices and names are snapshotted at time of s
 | `item_discount_amount` | DECIMAL | Discount applied to this line item |
 | `tax_amount` | DECIMAL | Tax on this line item |
 | `line_total` | DECIMAL | Final amount after discount + tax |
-| `applied_offer_id` | UUID | NULL = no offer, set = offer that gave this discount |
-| `stock_deducted` | BOOLEAN | False in v1 — activates in v2 when stock logic runs |
+| `applied_offer_id` | UUID | NULL = no offer applied |
+| `stock_deducted` | BOOLEAN | False in v1 — activates in v2 |
 | `created_at` | TIMESTAMP | Auto-set |
-
-**Snapshot rule:** `catalogue_item_name`, `unit_price`, and `cost_price_at_sale` are copied at the moment of sale and never updated. Historical accuracy depends on this.
-
-**Offer analytics note:** `applied_offer_id` is stored now so "offer X discounted item Y N times" is queryable in future without any schema change.
 
 ---
 
 ### Table 21 — `stock_movements`
-Audit log of every stock change. Append-only — never update or delete rows here. Table created in v1, write logic activates in v2.
+Audit log of every stock change. Append-only — never update or delete rows here.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -483,7 +473,7 @@ Audit log of every stock change. Append-only — never update or delete rows her
 | `quantity_change` | DECIMAL | Negative = stock out, Positive = stock in |
 | `reference_id` | UUID | The sale ID or purchase ID that caused this movement |
 | `reference_type` | TEXT | `'sale'` / `'purchase'` / `'manual'` |
-| `notes` | TEXT | Optional reason for manual adjustments |
+| `notes` | TEXT | Optional reason |
 | `created_at` | TIMESTAMP | Auto-set |
 
 **Scaling note:** This table grows faster than `sales` — every sale creates multiple movement rows. Plan for monthly partitioning by `created_at` before it exceeds 1M rows.
@@ -523,6 +513,12 @@ sale_items → stock_movements (v2)
 
 > An index is like the index at the back of a book — instead of reading every row, the database jumps straight to the matching ones. Every column you filter or sort by needs one.
 
+### Required Extensions
+```sql
+-- Enable before creating any text search or partial indexes
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+```
+
 ### Inventory
 ```sql
 CREATE INDEX ON inventory_items(business_id);
@@ -531,11 +527,14 @@ CREATE INDEX ON inventory_variants(inventory_item_id);
 CREATE UNIQUE INDEX ON variant_stock(variant_id, branch_id);
 CREATE INDEX ON inventory_batches(variant_id, branch_id);
 CREATE INDEX ON inventory_batches(expiry_date);
+CREATE INDEX ON inventory_batches(supplier_id);    -- "what did I buy from this supplier?"
+CREATE INDEX ON suppliers(business_id);             -- supplier list lookup
 ```
 
 ### Catalogue
 ```sql
 CREATE INDEX ON catalogue_items(business_id, availability_status);
+CREATE INDEX ON catalogue_items(business_id, branch_id);   -- POS: load items for current branch
 CREATE INDEX ON catalogue_items(category_id);
 CREATE INDEX ON catalogue_components(catalogue_item_id);
 CREATE INDEX ON categories(business_id, parent_id);
@@ -549,12 +548,39 @@ CREATE UNIQUE INDEX ON unit_conversions(business_id, from_unit_id, to_unit_id);
 CREATE UNIQUE INDEX ON customers(business_id, phone);
 CREATE INDEX ON customers(business_id, name);
 CREATE INDEX ON sales(business_id, created_at);
+CREATE INDEX ON sales(branch_id);                              -- branch-level revenue reports
 CREATE INDEX ON sales(customer_id);
 CREATE INDEX ON sale_items(sale_id);
 CREATE INDEX ON sale_items(catalogue_item_id);
+CREATE INDEX ON sale_items(variant_id);                        -- variant-level sales analytics
 CREATE INDEX ON stock_movements(variant_id, created_at);
+CREATE INDEX ON stock_movements(movement_type);                -- filter by waste / purchase / manual
 CREATE INDEX ON stock_movements(reference_id, reference_type);
 ```
+
+### Text Search (GIN + pg_trgm)
+> Enables partial word matching at the POS — typing "Rah" finds "Rahul", typing "Cash" finds "Cashew 100g". Without these, every keystroke is a full table scan.
+
+```sql
+CREATE INDEX ON customers       USING gin(name gin_trgm_ops);
+CREATE INDEX ON inventory_items USING gin(name gin_trgm_ops);
+CREATE INDEX ON catalogue_items USING gin(name gin_trgm_ops);
+```
+
+### Partial Indexes (Active Rows Only)
+> Only indexes rows that are actually in use — ignores deleted/archived rows entirely. Smaller index, faster query. Must be added alongside any `deleted_at` soft-delete column.
+
+```sql
+-- Active inventory and catalogue (once deleted_at column is added)
+CREATE INDEX ON inventory_items(business_id) WHERE deleted_at IS NULL;
+CREATE INDEX ON catalogue_items(business_id) WHERE deleted_at IS NULL;
+CREATE INDEX ON customers(business_id)       WHERE deleted_at IS NULL;
+
+-- Active offers — checked on every sale at POS
+CREATE INDEX ON offers(business_id, active)  WHERE active = true;
+```
+
+**Note:** `deleted_at` columns are a P0 improvement from the expert panel review. These partial indexes must be created at the same migration as those columns.
 
 ---
 
