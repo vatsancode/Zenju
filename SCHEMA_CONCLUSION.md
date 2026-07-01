@@ -6,9 +6,12 @@
 ## Global Design Decisions
 - All primary keys use **UUID v7** — time-ordered, fast for inserts, timestamp embedded in ID
 - All tables keep `created_at` alongside UUID v7 — UUID v7 handles ordering, `created_at` handles human-readable querying and Supabase tooling
+- All mutable tables carry `updated_at TIMESTAMP` — auto-updated on every change. Enables change detection, caching, sync, and CDC.
 - All tenant-owned tables carry `business_id` for Row Level Security (multi-tenancy)
 - `branch_id` is planted as nullable on relevant tables — NULL = all branches, set = branch-specific (future franchise support)
 - `channel_id` is planted as nullable on offers — NULL = all catalogues, set = specific catalogue/channel (future wholesale/retail split)
+- **Soft delete rule:** `deleted_at TIMESTAMP` on inventory_items, catalogue_items, offers, and customers. NULL = active, set = soft-deleted. Queries must filter `WHERE deleted_at IS NULL` for active records.
+- **Authorship rule:** Tables where it matters carry `created_by UUID FK → business_users.id` to track who performed the action.
 - **Unit rule:** All `unit` references use `unit_id UUID FK → units.id` — never plain text. This ensures unit conversions are always resolvable.
 - **Category rule:** All `category` references use `category_id UUID FK → categories.id` — never plain text.
 
@@ -25,7 +28,9 @@ The top-level tenant. Every other table traces back to this. One row per registe
 | `name` | TEXT | Business trading name |
 | `owner_user_id` | UUID | FK → auth.users.id — the account owner |
 | `subscription_plan` | TEXT | `'free'` / `'pro'` |
+| `currency` | TEXT | DEFAULT `'INR'` — business-level currency |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 ---
 
@@ -40,6 +45,7 @@ Physical locations of a business. v1 starts with one default branch per business
 | `address` | TEXT | Optional |
 | `is_default` | BOOLEAN | True for the first/only branch |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 **Rule:** Every business gets exactly one default branch on signup. `branch_id` on other tables defaults to this branch's ID.
 
@@ -54,8 +60,34 @@ Sales channels — e.g. retail counter, wholesale, online. Used to separate pric
 | `business_id` | UUID | FK → businesses.id |
 | `name` | TEXT | e.g. "Retail", "Wholesale", "Online" |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 **v1 rule:** Most businesses use one default channel (retail). `channel_id` is NULL on most tables in v1 — means "applies to all channels."
+
+---
+
+### Table 0d — `business_users`
+The bridge between Supabase Auth and business operations. One row per user per business. Tracks role, branch access, and identity for audit trails.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key — referenced by `sales.created_by` and `event_log.performed_by` |
+| `business_id` | UUID | FK → businesses.id |
+| `auth_user_id` | UUID | FK → auth.users.id (Supabase Auth) |
+| `role` | TEXT | `'owner'` / `'manager'` / `'cashier'` / `'viewer'` |
+| `branch_id` | UUID | NULL = all branches, set = this branch only |
+| `display_name` | TEXT | Name shown in POS and reports |
+| `is_active` | BOOLEAN | Disable without deleting |
+| `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+
+**Unique constraint:** `(business_id, auth_user_id)` — one role per user per business.
+
+**Why this design:**
+- One Supabase auth account can work at multiple businesses (e.g. freelance cashier)
+- Role is per-business, not global
+- `branch_id` scoping enables "this cashier only works at Branch A"
+- `businesses.owner_user_id` identifies who owns the billing/subscription; `business_users` handles operational access
 
 ---
 
@@ -74,14 +106,16 @@ The product identity. Shared information that never changes per variant or branc
 | `unit_id` | UUID | FK → units.id — base unit of this item (KG, Pieces, etc.) |
 | `has_expiry` | BOOLEAN | Is this perishable? |
 | `expires_within_days` | INTEGER | Alert window before expiry |
-| `taxes` | JSONB | `[{name, percentage, inclusive}]` |
 | `image_url` | TEXT | Optional |
 | `notes` | TEXT | Optional description |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+| `deleted_at` | TIMESTAMP | NULL = active, set = soft-deleted |
 
 **Changed from original:**
 - `category TEXT` + `subcategory TEXT` → removed, replaced with `category_id UUID FK → categories.id`
 - `unit TEXT` → removed, replaced with `unit_id UUID FK → units.id`
+- `taxes JSONB` → removed. Tax is defined at the catalogue level via `catalogue_item_taxes` junction table, not on inventory.
 
 ---
 
@@ -112,6 +146,7 @@ Each unique version of a product. Holds default pricing and thresholds.
 | `par_stock` | DECIMAL | Default minimum stock threshold |
 | `availability_status` | TEXT | `'active'` / `'inactive'` |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 ---
 
@@ -127,28 +162,21 @@ The actual attribute values per variant. Links each variant to its attribute def
 
 ---
 
-### Table 5 — `variant_stock`
-Stock quantity per variant. Branch-aware from day one — one row per variant now, one row per variant per branch later.
+### View — `variant_stock_current`
+Replaces the old `variant_stock` table. Current stock is **derived**, not stored — one source of truth, nothing to sync, nothing to mismatch.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | UUID v7 | Primary key |
-| `variant_id` | UUID | FK → inventory_variants.id |
-| `branch_id` | UUID | FK → branches.id — default branch in v1 |
-| `current_stock` | DECIMAL | Live stock quantity |
-| `selling_price_override` | DECIMAL | Overrides variant default if set |
-| `par_stock_override` | DECIMAL | Overrides variant default if set |
-| `availability_override` | TEXT | Overrides variant default if set |
-| `updated_at` | TIMESTAMP | Auto-updated on every change |
+```sql
+CREATE VIEW variant_stock_current AS
+SELECT variant_id, branch_id, COALESCE(SUM(quantity_remaining), 0) AS current_stock
+FROM inventory_batches
+GROUP BY variant_id, branch_id;
+```
 
-**Unique constraint:** `(variant_id, branch_id)` — only one stock row per variant per branch. Prevents double-counting.
+**Why a view instead of a table:** The old `variant_stock.current_stock` had to stay in sync with `SUM(inventory_batches.quantity_remaining)` — any bug in the sync logic created phantom stock. The view eliminates this risk entirely.
 
-**Stock deduction rule (backend):** When processing a sale, always use `SELECT FOR UPDATE` on this row inside a transaction. This prevents two simultaneous sales from both passing the stock check and over-selling. This is a backend code rule — the schema is designed correctly for it because having one row per variant+branch makes row-level locking possible.
+**Stock deduction rule (backend):** When processing a sale, lock the batch rows directly: `SELECT ... FROM inventory_batches WHERE variant_id = X AND branch_id = Y FOR UPDATE`. Check SUM >= quantity needed, then deduct from specific batches via FEFO/FIFO. This is better than locking a separate table — you're locking the exact rows you're modifying.
 
----
-
-### Override Rule
-For `selling_price`, `par_stock`, and `availability_status` — always check `variant_stock` first. If the override column is `null`, fall back to the value in `inventory_variants`.
+**Pricing rule:** POS reads prices from `catalogue_items.selling_price`, not from inventory. `par_stock` and `availability_status` stay on `inventory_variants` as defaults — no branch-level overrides in v1.
 
 ---
 
@@ -165,6 +193,7 @@ One row per vendor/supplier a business purchases from.
 | `address` | TEXT | Optional |
 | `notes` | TEXT | Optional — e.g. "Reliable for nuts, slow on spices" |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 ---
 
@@ -186,9 +215,9 @@ One row per purchase batch of a variant. Tracks vendor, cost, quantity, and expi
 | `received_at` | TIMESTAMP | When this batch was received |
 | `created_at` | TIMESTAMP | Auto-set |
 
-**Stock sync rule:** `variant_stock.current_stock` must equal the SUM of `quantity_remaining` across all active batches for that variant + branch. Both must be updated inside the same database transaction — never separately.
+**Source of truth:** `quantity_remaining` on each batch IS the stock. The `variant_stock_current` view SUMs these per variant+branch to give live stock levels. No separate table to keep in sync.
 
-**Sale deduction (future):** Batches are picked using FEFO (first-expiry, first-out) for perishables, FIFO (first-in, first-out) for non-perishables.
+**Sale deduction:** Batches are picked using FEFO (first-expiry, first-out) for perishables, FIFO (first-in, first-out) for non-perishables.
 
 ---
 
@@ -198,8 +227,8 @@ inventory_items (category_id → categories, unit_id → units)
   ├── attribute_definitions
   └── inventory_variants
         ├── variant_attribute_values → attribute_definitions
-        ├── variant_stock (branch_id → branches)
         └── inventory_batches → suppliers
+              └── variant_stock_current (VIEW: SUM of quantity_remaining per variant+branch)
 ```
 
 ---
@@ -218,6 +247,7 @@ Handles both categories and subcategories in one table using a self-referencing 
 | `display_order` | INTEGER | Controls sort order in UI |
 | `is_archived` | BOOLEAN | Soft delete — keeps data, hides from UI |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 **Rule:** Only one level of nesting — a subcategory cannot itself have children. Enforced in application layer.
 
@@ -234,6 +264,7 @@ Business-wide master list of tags. Tags are shared across the whole business.
 | `color` | TEXT | Optional hex color for UI display |
 | `description` | TEXT | Optional |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 ---
 
@@ -265,13 +296,16 @@ The menu — one row per thing a business sells.
 | `category_id` | UUID | FK → categories.id |
 | `type` | TEXT | `'linked'` / `'bundle'` / `'independent'` |
 | `selling_price` | DECIMAL | Default price |
-| `taxes` | JSONB | `[{name, percentage, inclusive}]` |
-| `tax_inclusive` | BOOLEAN | Is tax already inside the selling price? |
+| `tax_inclusive` | BOOLEAN | Is tax already inside the selling price? Per-item control. |
 | `inventory_tracking` | BOOLEAN | Should a sale deduct stock? |
 | `availability_status` | TEXT | `'active'` / `'inactive'` / `'archived'` |
 | `notes` | TEXT | Internal notes |
 | `branch_id` | UUID | NULL = visible in all branches, set = this branch only |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+| `deleted_at` | TIMESTAMP | NULL = active, set = soft-deleted |
+
+**Tax handling:** Taxes are linked via the `catalogue_item_taxes` junction table → `tax_rates`. The old `taxes JSONB` column has been removed. `tax_inclusive` stays on this table because inclusive/exclusive is a per-item decision.
 
 ---
 
@@ -305,8 +339,39 @@ Controls which specific variants are selectable at POS for a given component.
 
 ---
 
+### Table — `tax_rates`
+Master list of taxes per business. Replaces the old `taxes JSONB` column — normalized for clean reporting and filtering.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `name` | TEXT | e.g. "GST 18%", "CGST 9%", "Cess 1%" |
+| `percentage` | NUMERIC | The tax rate |
+| `active` | BOOLEAN | DEFAULT true — inactive rates are hidden from UI but preserved for history |
+| `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+
+**Unique constraint:** `(business_id, name, percentage)` — prevents duplicate tax definitions.
+
+---
+
+### Table — `catalogue_item_taxes`
+Junction table linking catalogue items to their applicable taxes.
+
+| Column | Type | Notes |
+|---|---|---|
+| `catalogue_item_id` | UUID | FK → catalogue_items.id |
+| `tax_rate_id` | UUID | FK → tax_rates.id |
+
+**Composite primary key:** `(catalogue_item_id, tax_rate_id)`
+
+**At sale time:** Snapshot the computed tax into `sale_items` as `tax_amount` (total) and `tax_breakdown` JSONB (`[{name, percentage, amount}]`). The snapshot is a frozen historical record — `tax_rates` is the source of truth for current rates.
+
+---
+
 ### Table 14 — `offers`
-Deals and promotions with flexible JSONB config.
+Deals and promotions with flexible JSONB config. Supports scheduled offers with optional date ranges.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -318,7 +383,13 @@ Deals and promotions with flexible JSONB config.
 | `benefit_type` | TEXT | Label — see benefit types below |
 | `benefit_config` | JSONB | Rules for that type |
 | `active` | BOOLEAN | Is this offer currently running? |
+| `start_date` | DATE | Optional — NULL = active immediately when `active` is true |
+| `end_date` | DATE | Optional — NULL = no expiry |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+| `deleted_at` | TIMESTAMP | NULL = active, set = soft-deleted |
+
+**Active offer query:** `WHERE active = true AND deleted_at IS NULL AND (start_date IS NULL OR start_date <= CURRENT_DATE) AND (end_date IS NULL OR end_date >= CURRENT_DATE)`
 
 **Benefit types:**
 
@@ -358,6 +429,7 @@ Master list of measurement units per business.
 | `allows_decimal` | BOOLEAN | Can you sell 1.5 of this? |
 | `is_locked` | BOOLEAN | True once used in inventory — cannot be deleted |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
 
 ---
 
@@ -384,10 +456,14 @@ Conversion factors between units.
 categories (parent_id → self)
 tags → entity_tags (entity_type + entity_id → anything)
 
+tax_rates (business_id)
+  └── catalogue_item_taxes → catalogue_items
+
 catalogue_items (business_id, branch_id, category_id → categories)
+  ├── catalogue_item_taxes → tax_rates
   ├── catalogue_components (unit_id → units)
   │     └── catalogue_component_variants → inventory_variants
-  └── offer_items ←── offers (business_id, channel_id → channels)
+  └── offer_items ←── offers (business_id, channel_id → channels, start_date, end_date)
 
 units → unit_conversions
       UNIQUE (business_id, from_unit_id, to_unit_id)
@@ -411,13 +487,15 @@ One row per customer per business.
 | `address` | TEXT | Optional |
 | `notes` | TEXT | Optional |
 | `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+| `deleted_at` | TIMESTAMP | NULL = active, set = soft-deleted |
 
 **Unique constraint:** `(business_id, phone)` — one customer record per phone number per business. Prevents duplicates on POS lookup.
 
 ---
 
 ### Table 19 — `sales`
-One row per completed transaction.
+One row per transaction. The bill header.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -425,6 +503,7 @@ One row per completed transaction.
 | `business_id` | UUID | FK → businesses.id |
 | `branch_id` | UUID | FK → branches.id |
 | `customer_id` | UUID | NULL = walk-in, set = known customer |
+| `status` | TEXT | `NOT NULL DEFAULT 'completed'` — CHECK: `('draft', 'completed', 'voided', 'refunded')` |
 | `subtotal` | DECIMAL | Total before bill-level discount |
 | `bill_discount_amount` | DECIMAL | Discount applied to whole bill |
 | `bill_discount_type` | TEXT | `'flat'` / `'percentage'` — CHECK constraint enforced |
@@ -432,6 +511,7 @@ One row per completed transaction.
 | `final_amount` | DECIMAL | What the customer actually paid |
 | `payment_method` | TEXT | `'cash'` / `'upi'` / `'card'` — CHECK constraint enforced |
 | `notes` | TEXT | Optional |
+| `created_by` | UUID | FK → business_users.id — who processed this sale |
 | `created_at` | TIMESTAMP | Auto-set — this is the sale timestamp |
 
 **Scaling note:** This table grows forever. Plan for monthly partitioning by `created_at` before it exceeds 500k rows. Always filter queries with a date range — this keeps queries fast by only scanning one month's data at a time.
@@ -452,11 +532,14 @@ One row per line item. Prices and names are snapshotted at time of sale — neve
 | `unit_price` | DECIMAL | Snapshot — price at time of sale |
 | `cost_price_at_sale` | DECIMAL | Snapshot — cost price for profit calculation |
 | `item_discount_amount` | DECIMAL | Discount applied to this line item |
-| `tax_amount` | DECIMAL | Tax on this line item |
+| `tax_amount` | DECIMAL | Total tax on this line item |
+| `tax_breakdown` | JSONB | Snapshot: `[{name, percentage, amount}]` — itemized tax detail for receipts |
 | `line_total` | DECIMAL | Final amount after discount + tax |
 | `applied_offer_id` | UUID | NULL = no offer applied |
 | `stock_deducted` | BOOLEAN | False in v1 — activates in v2 |
 | `created_at` | TIMESTAMP | Auto-set |
+
+**Tax snapshot rule:** At sale time, compute taxes from `catalogue_item_taxes` → `tax_rates`, then freeze the result into `tax_amount` (total) and `tax_breakdown` (itemized). The snapshot is a frozen historical record — `tax_rates` is the live source of truth.
 
 ---
 
@@ -480,18 +563,77 @@ Audit log of every stock change. Append-only — never update or delete rows her
 
 ---
 
+### Table — `refunds`
+Track refunds against completed sales. Supports partial refunds — a customer can return 2 of 5 items.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `sale_id` | UUID | FK → sales.id |
+| `business_id` | UUID | FK → businesses.id |
+| `refund_amount` | DECIMAL | Total refund amount |
+| `reason` | TEXT | Optional — why the refund |
+| `created_by` | UUID | FK → business_users.id — who processed the refund |
+| `created_at` | TIMESTAMP | Auto-set |
+
+**Rule:** When a refund is created, set `sales.status = 'refunded'`.
+
+---
+
+### Table — `refund_items`
+Which specific line items were refunded and how many. Enables partial refunds.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `refund_id` | UUID | FK → refunds.id |
+| `sale_item_id` | UUID | FK → sale_items.id |
+| `quantity` | DECIMAL | How many units refunded (can be less than original) |
+| `refund_amount` | DECIMAL | Amount refunded for this line |
+
+**Example:** Customer bought 5 cashew packs at ₹100 each, returns 2 → `refund_items` row with `quantity = 2`, `refund_amount = 200`.
+
+---
+
+## Audit
+
+### Table — `event_log`
+General-purpose audit trail for all entity changes. Append-only — never update or delete rows here.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `entity_type` | TEXT | `'inventory_item'` / `'catalogue_item'` / `'customer'` / `'offer'` / etc. |
+| `entity_id` | UUID | The ID of the changed entity |
+| `action` | TEXT | `'created'` / `'updated'` / `'deleted'` / `'restored'` |
+| `changes` | JSONB | `{"field": {"old": X, "new": Y}}` — what changed |
+| `performed_by` | UUID | FK → business_users.id — who made the change |
+| `created_at` | TIMESTAMP | When the event happened |
+
+**Scaling note:** This table grows with every edit across the system. Plan for monthly partitioning by `created_at` when it grows large.
+
+**Write rule:** Backend writes to this table on every create/update/delete of tracked entities. The `changes` JSONB only includes fields that actually changed — not the full row.
+
+---
+
 ### POS Relationships
 ```
 customers (business_id)
   └── entity_tags (entity_type = 'customer') ← tags
 
-sales (business_id, branch_id → branches, customer_id → customers)
-  └── sale_items
-        ├── catalogue_item_id → catalogue_items
-        ├── variant_id        → inventory_variants
-        └── applied_offer_id  → offers
+sales (business_id, branch_id → branches, customer_id → customers, created_by → business_users)
+  ├── sale_items
+  │     ├── catalogue_item_id → catalogue_items
+  │     ├── variant_id        → inventory_variants
+  │     ├── applied_offer_id  → offers
+  │     └── tax_breakdown     JSONB snapshot from tax_rates
+  └── refunds (created_by → business_users)
+        └── refund_items → sale_items
 
 sale_items → stock_movements (v2)
+
+event_log (entity_type + entity_id → anything, performed_by → business_users)
 ```
 
 ---
@@ -502,10 +644,12 @@ sale_items → stock_movements (v2)
 
 | Table | Unique Constraint | Why |
 |---|---|---|
-| `variant_stock` | `(variant_id, branch_id)` | One stock row per variant per branch — prevents double-counting |
+| `business_users` | `(business_id, auth_user_id)` | One role per user per business |
 | `customers` | `(business_id, phone)` | No duplicate customer per phone number |
 | `unit_conversions` | `(business_id, from_unit_id, to_unit_id)` | Only one factor per unit pair — prevents conflicting conversions |
 | `attribute_definitions` | `(inventory_item_id, name)` | No duplicate attribute names per product |
+| `tax_rates` | `(business_id, name, percentage)` | No duplicate tax definitions per business |
+| `catalogue_item_taxes` | `(catalogue_item_id, tax_rate_id)` | Composite PK — one link per item-tax pair |
 
 ---
 
@@ -519,12 +663,17 @@ sale_items → stock_movements (v2)
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
 
+### Foundation
+```sql
+CREATE UNIQUE INDEX ON business_users(business_id, auth_user_id);
+CREATE INDEX ON business_users(auth_user_id);      -- "which businesses does this user belong to?"
+```
+
 ### Inventory
 ```sql
 CREATE INDEX ON inventory_items(business_id);
 CREATE INDEX ON inventory_items(category_id);
 CREATE INDEX ON inventory_variants(inventory_item_id);
-CREATE UNIQUE INDEX ON variant_stock(variant_id, branch_id);
 CREATE INDEX ON inventory_batches(variant_id, branch_id);
 CREATE INDEX ON inventory_batches(expiry_date);
 CREATE INDEX ON inventory_batches(supplier_id);    -- "what did I buy from this supplier?"
@@ -541,6 +690,10 @@ CREATE INDEX ON categories(business_id, parent_id);
 CREATE INDEX ON entity_tags(entity_type, entity_id);
 CREATE INDEX ON entity_tags(tag_id);
 CREATE UNIQUE INDEX ON unit_conversions(business_id, from_unit_id, to_unit_id);
+CREATE INDEX ON tax_rates(business_id);
+CREATE INDEX ON tax_rates(business_id, active) WHERE active = true;
+CREATE INDEX ON catalogue_item_taxes(catalogue_item_id);
+CREATE INDEX ON catalogue_item_taxes(tax_rate_id);
 ```
 
 ### POS
@@ -550,12 +703,26 @@ CREATE INDEX ON customers(business_id, name);
 CREATE INDEX ON sales(business_id, created_at);
 CREATE INDEX ON sales(branch_id);                              -- branch-level revenue reports
 CREATE INDEX ON sales(customer_id);
+CREATE INDEX ON sales(payment_method);                         -- payment method reports
+CREATE INDEX ON sales(status) WHERE status != 'completed';     -- find drafts/refunded/voided quickly
+CREATE INDEX ON sales(created_by);                             -- "sales by this cashier"
 CREATE INDEX ON sale_items(sale_id);
 CREATE INDEX ON sale_items(catalogue_item_id);
 CREATE INDEX ON sale_items(variant_id);                        -- variant-level sales analytics
 CREATE INDEX ON stock_movements(variant_id, created_at);
 CREATE INDEX ON stock_movements(movement_type);                -- filter by waste / purchase / manual
 CREATE INDEX ON stock_movements(reference_id, reference_type);
+CREATE INDEX ON refunds(sale_id);
+CREATE INDEX ON refunds(business_id, created_at);
+CREATE INDEX ON refund_items(refund_id);
+CREATE INDEX ON refund_items(sale_item_id);
+```
+
+### Audit
+```sql
+CREATE INDEX ON event_log(business_id, created_at);
+CREATE INDEX ON event_log(entity_type, entity_id);
+CREATE INDEX ON event_log(performed_by);
 ```
 
 ### Text Search (GIN + pg_trgm)
@@ -568,19 +735,14 @@ CREATE INDEX ON catalogue_items USING gin(name gin_trgm_ops);
 ```
 
 ### Partial Indexes (Active Rows Only)
-> Only indexes rows that are actually in use — ignores deleted/archived rows entirely. Smaller index, faster query. Must be added alongside any `deleted_at` soft-delete column.
+> Only indexes rows that are actually in use — ignores deleted/archived rows entirely. Smaller index, faster query. Created alongside the `deleted_at` soft-delete columns.
 
 ```sql
--- Active inventory and catalogue (once deleted_at column is added)
 CREATE INDEX ON inventory_items(business_id) WHERE deleted_at IS NULL;
 CREATE INDEX ON catalogue_items(business_id) WHERE deleted_at IS NULL;
 CREATE INDEX ON customers(business_id)       WHERE deleted_at IS NULL;
-
--- Active offers — checked on every sale at POS
-CREATE INDEX ON offers(business_id, active)  WHERE active = true;
+CREATE INDEX ON offers(business_id, active)  WHERE active = true AND deleted_at IS NULL;
 ```
-
-**Note:** `deleted_at` columns are a P0 improvement from the expert panel review. These partial indexes must be created at the same migration as those columns.
 
 ---
 
@@ -591,24 +753,30 @@ CREATE INDEX ON offers(business_id, active)  WHERE active = true;
 | 0a | `businesses` | Foundation | Top-level tenant — every table links back here |
 | 0b | `branches` | Foundation | Physical locations of a business |
 | 0c | `channels` | Foundation | Sales channels (retail, wholesale, online) |
+| 0d | `business_users` | Foundation | Staff/users per business — roles, branch access, audit identity |
 | 1 | `inventory_items` | Inventory | Raw stock identity — category_id + unit_id linked properly |
 | 2 | `attribute_definitions` | Inventory | Attribute type names per item (Size, Color, etc.) |
 | 3 | `inventory_variants` | Inventory | Each unique version of a product |
 | 4 | `variant_attribute_values` | Inventory | Attribute values per variant |
-| 5 | `variant_stock` | Inventory | Live stock per variant+branch — unique constraint enforced |
-| 6 | `suppliers` | Inventory | Vendor/supplier profiles |
-| 7 | `inventory_batches` | Inventory | Per-purchase batch — vendor, cost, qty, expiry |
-| 8 | `categories` | Global | Categories + subcategories — shared by inventory and catalogue |
-| 9 | `tags` | Global | Business-wide master tag list |
-| 10 | `entity_tags` | Global | Bridge — tags to any entity type |
+| — | `variant_stock_current` | Inventory | **VIEW** — live stock per variant+branch, derived from batch quantities |
+| 5 | `suppliers` | Inventory | Vendor/supplier profiles |
+| 6 | `inventory_batches` | Inventory | Per-purchase batch — vendor, cost, qty, expiry |
+| 7 | `categories` | Global | Categories + subcategories — shared by inventory and catalogue |
+| 8 | `tags` | Global | Business-wide master tag list |
+| 9 | `entity_tags` | Global | Bridge — tags to any entity type |
+| 10 | `tax_rates` | Global | Master tax list per business — normalized from old JSONB |
 | 11 | `catalogue_items` | Catalogue | The menu — what you sell |
+| — | `catalogue_item_taxes` | Catalogue | Junction — which taxes apply to which catalogue item |
 | 12 | `catalogue_components` | Catalogue | Recipe — unit_id linked to units table |
 | 13 | `catalogue_component_variants` | Catalogue | Which variants are selectable per component |
-| 14 | `offers` | Catalogue | Deals with flexible JSONB benefit_config |
+| 14 | `offers` | Catalogue | Deals with JSONB config + scheduled date range |
 | 15 | `offer_items` | Catalogue | Which catalogue items each offer covers |
 | 16 | `units` | Units | Measurement units per business |
 | 17 | `unit_conversions` | Units | Conversion rates — unique constraint enforced |
 | 18 | `customers` | POS | Customer profiles — unique phone per business |
-| 19 | `sales` | POS | Bill header — partition by created_at at scale |
-| 20 | `sale_items` | POS | Line items with snapshots and offer tracking |
+| 19 | `sales` | POS | Bill header with status + created_by — partition at scale |
+| 20 | `sale_items` | POS | Line items with snapshots, tax breakdown, and offer tracking |
 | 21 | `stock_movements` | POS | Audit log — partition by created_at at scale |
+| 22 | `refunds` | POS | Refund header — linked to sales |
+| 23 | `refund_items` | POS | Refund line items — partial refund support |
+| 24 | `event_log` | Audit | General audit trail — append-only, partition at scale |
