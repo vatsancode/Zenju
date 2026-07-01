@@ -450,6 +450,17 @@
   color: var(--color-text-tertiary);
 }
 
+.dateRow {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.optionalHint {
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
 .benefitValueRow {
   display: flex;
   flex-direction: column;

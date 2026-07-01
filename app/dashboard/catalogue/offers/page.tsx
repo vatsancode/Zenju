@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { mockCatalogueItems, formatINR } from '@/lib/mock-data'
-import { Plus, X, Search, ChevronDown, Pencil, ArrowLeft, Hash, Gift, SlidersHorizontal } from 'lucide-react'
+import { Plus, X, Search, ChevronDown, Pencil, ArrowLeft, Hash, Gift, SlidersHorizontal, Calendar } from 'lucide-react'
 import styles from './offers.module.css'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -18,6 +18,8 @@ type Offer = {
   benefit_type: BenefitType
   benefit_value: number
   active: boolean
+  start_date: string
+  end_date: string
   created_at: string
 }
 
@@ -32,6 +34,8 @@ const seedOffers: Offer[] = [
     benefit_type: 'fixed_price',
     benefit_value: 5000,
     active: true,
+    start_date: '2024-06-01',
+    end_date: '2024-12-31',
     created_at: '2024-06-01T10:00:00Z',
   },
   {
@@ -42,6 +46,8 @@ const seedOffers: Offer[] = [
     benefit_type: 'percentage_discount',
     benefit_value: 10,
     active: true,
+    start_date: '2024-06-05',
+    end_date: '',
     created_at: '2024-06-05T10:00:00Z',
   },
   {
@@ -52,6 +58,8 @@ const seedOffers: Offer[] = [
     benefit_type: 'free_item',
     benefit_value: 0,
     active: false,
+    start_date: '2024-06-10',
+    end_date: '2024-06-30',
     created_at: '2024-06-10T10:00:00Z',
   },
 ]
@@ -70,6 +78,19 @@ function benefitLabel(offer: Offer): string {
     case 'free_item':            return 'Free Item (cheapest)'
     default:                     return ''
   }
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function dateRangeLabel(offer: Offer): string {
+  if (!offer.start_date && !offer.end_date) return ''
+  if (offer.start_date && offer.end_date) return `${formatDate(offer.start_date)} – ${formatDate(offer.end_date)}`
+  if (offer.start_date) return `From ${formatDate(offer.start_date)}`
+  return `Until ${formatDate(offer.end_date)}`
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -91,6 +112,8 @@ export default function OffersPage() {
   const [formMinQty, setFormMinQty] = useState<number | ''>(2)
   const [formBenefitType, setFormBenefitType] = useState<BenefitType | ''>('')
   const [formBenefitValue, setFormBenefitValue] = useState<number | ''>(0)
+  const [formStartDate, setFormStartDate] = useState('')
+  const [formEndDate, setFormEndDate] = useState('')
   const [submitted, setSubmitted] = useState(false)
 
   // ── Filter dropdown ──────────────────────────────────────────────────────
@@ -149,6 +172,8 @@ export default function OffersPage() {
       (formBenefitValue === '' || Number(formBenefitValue) <= 0)
         ? 'Enter a valid benefit value'
         : '',
+    startDate:    !formStartDate ? 'Start date is required' : '',
+    dateRange:    formStartDate && formEndDate && formEndDate < formStartDate ? 'End date must be after start date' : '',
   }
   const hasErrors = Object.values(errors).some(e => e)
 
@@ -159,6 +184,8 @@ export default function OffersPage() {
     setFormMinQty(2)
     setFormBenefitType('')
     setFormBenefitValue(0)
+    setFormStartDate('')
+    setFormEndDate('')
     setSubmitted(false)
     setEditingId(null)
     setPickerOpen(false)
@@ -184,6 +211,8 @@ export default function OffersPage() {
     setFormMinQty(offer.min_quantity)
     setFormBenefitType(offer.benefit_type)
     setFormBenefitValue(offer.benefit_value)
+    setFormStartDate(offer.start_date)
+    setFormEndDate(offer.end_date)
     setDrawerMode('edit')
     setShowDrawer(true)
   }
@@ -211,6 +240,8 @@ export default function OffersPage() {
                 min_quantity: Number(formMinQty),
                 benefit_type: formBenefitType as BenefitType,
                 benefit_value: formBenefitType === 'free_item' ? 0 : Number(formBenefitValue),
+                start_date: formStartDate,
+                end_date: formEndDate,
               }
             : o
         )
@@ -226,6 +257,8 @@ export default function OffersPage() {
           benefit_type: formBenefitType as BenefitType,
           benefit_value: formBenefitType === 'free_item' ? 0 : Number(formBenefitValue),
           active: true,
+          start_date: formStartDate,
+          end_date: formEndDate,
           created_at: new Date().toISOString(),
         },
       ])
@@ -335,6 +368,15 @@ export default function OffersPage() {
                     <span className={`badge ${offer.active ? 'badge--success' : 'badge--neutral'}`}>
                       {offer.active ? 'Active' : 'Inactive'}
                     </span>
+                    {dateRangeLabel(offer) && (
+                      <>
+                        <div className={styles.offerMetaDot} />
+                        <div className={styles.offerMetaItem}>
+                          <Calendar size={12} className={styles.offerMetaIcon} />
+                          {dateRangeLabel(offer)}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className={styles.offerItems}>
                     {offer.applicable_item_ids.map(id => (
@@ -408,7 +450,42 @@ export default function OffersPage() {
                 </div>
               </div>
 
-              {/* Section 2: Applicable Items */}
+              {/* Section 2: Validity Period */}
+              <div className={styles.drawerSection}>
+                <div className={styles.drawerSectionLabel}>Validity Period</div>
+                <div className={styles.dateRow}>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label form-label--required">From</label>
+                    <input
+                      className={`form-input ${submitted && errors.startDate ? 'form-input--error' : ''}`}
+                      type="date"
+                      value={formStartDate}
+                      onChange={e => setFormStartDate(e.target.value)}
+                    />
+                    {submitted && errors.startDate && (
+                      <span className="form-error">{errors.startDate}</span>
+                    )}
+                  </div>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">To <span className={styles.optionalHint}>(optional)</span></label>
+                    <input
+                      className={`form-input ${submitted && errors.dateRange ? 'form-input--error' : ''}`}
+                      type="date"
+                      value={formEndDate}
+                      min={formStartDate}
+                      onChange={e => setFormEndDate(e.target.value)}
+                    />
+                    {submitted && errors.dateRange && (
+                      <span className="form-error">{errors.dateRange}</span>
+                    )}
+                  </div>
+                </div>
+                {!formEndDate && formStartDate && (
+                  <span className="form-hint">No end date means the offer runs indefinitely</span>
+                )}
+              </div>
+
+              {/* Section 3: Applicable Items */}
               <div className={styles.drawerSection}>
                 <div className={styles.drawerSectionLabel}>Applicable Items</div>
                 <div className="form-group">
@@ -490,7 +567,7 @@ export default function OffersPage() {
                 </div>
               </div>
 
-              {/* Section 3: Condition */}
+              {/* Section 4: Condition */}
               <div className={styles.drawerSection}>
                 <div className={styles.drawerSectionLabel}>Condition</div>
                 <div className="form-group">
@@ -515,7 +592,7 @@ export default function OffersPage() {
                 </div>
               </div>
 
-              {/* Section 4: Benefit */}
+              {/* Section 5: Benefit */}
               <div className={styles.drawerSection}>
                 <div className={styles.drawerSectionLabel}>Benefit</div>
                 <div className="form-group">
