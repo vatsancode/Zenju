@@ -40,9 +40,12 @@ types/                    → shared TypeScript types (database.ts and friends)
    same folder, same base name. Page modules sit next to their `page.tsx`.
 4. **Supabase access goes through `lib/supabase/client.ts` or `server.ts`.**
    No file creates its own Supabase client with `createClient(...)` directly.
-5. **Shared logic lives in `lib/`.** If the same function/logic is written in
-   two or more places in this session's diff, flag it — it belongs in
-   `lib/services/` (data logic) or `lib/` (pure helpers).
+5. **Check for existing logic before writing new logic.** Before adding new
+   business logic, search `lib/` (and `lib/services/`) for an equivalent or
+   close-match function. If a close match exists, do NOT silently write a new
+   version and do NOT silently decide to reuse/extend it either — flag it in
+   the report and ask the user whether to reuse, extend, or knowingly write a
+   separate version. The user picks; this skill never auto-decides.
 6. **API routes only under `app/api/<domain>/route.ts`** — no fetch handlers
    or endpoint logic anywhere else.
 7. **Shared types go in `types/`** — a type/interface used by more than one
@@ -62,4 +65,6 @@ types/                    → shared TypeScript types (database.ts and friends)
 ## Step 3 — Report
 
 Read `.claude/skills/_shared/report-format.md` and produce the report.
-Report only — do not move or edit files.
+Report only — do not move or edit files. Exception: for rule 5 possible-duplicate
+findings, end the report by explicitly asking the user which of reuse/extend/
+keep-separate they want — do not resolve it yourself.

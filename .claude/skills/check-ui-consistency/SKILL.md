@@ -44,9 +44,8 @@ This skill cares about: `*.tsx` and their paired `*.module.css`.
 
 ### SHOULD rules
 
-8. Freemium behaviour matches PRD §9: limit modals at 50/30 items, Pro
-   analytics shown blurred/locked (not hidden), upgrade prompts use
-   `upgrade-banner` / `plan-bar` classes.
+8. Freemium behaviour matches PRD §9: limit modals at 50/30 items, upgrade
+   prompts use `upgrade-banner` / `plan-bar` classes.
 9. New screens SHOULD be mobile-responsive (PRD: POS especially must work on
    phone/tablet) — flag fixed pixel widths on content containers.
 10. Typography follows the cheat sheet: page title in `page-header`, section
