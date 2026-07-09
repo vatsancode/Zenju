@@ -1,17 +1,18 @@
 # Zenju Project Skills — Quality Gate System
 
 Custom Claude Code skills that check **this session's changes only** (never the
-whole project) against the project's standards. Rule sources: `PRD.md`,
-`STYLEGUIDE.md`, `SCHEMA_CONCLUSION.md`.
+whole project) against the project's standards. Rule sources: `PRD.md` (currently
+being rewritten — checks that lean on it have less to enforce until it returns),
+`docs/css-styleguide.md`, `docs/database-schema.md`.
 
 ## The skills
 
 | Skill | What it checks |
 |---|---|
 | `/check-folder-structure` | New files in the right folder, logic at the right layer |
-| `/check-css-standards` | STYLEGUIDE.md rules — no Tailwind, tokens only, globals vs module split |
+| `/check-css-standards` | docs/css-styleguide.md rules — no Tailwind, tokens only, globals vs module split |
 | `/check-performance` | O(n²) loops, N+1 queries, over-fetching, render waste |
-| `/check-schema-alignment` | Queries match SCHEMA_CONCLUSION.md — names, soft delete, snapshots, tenancy |
+| `/check-schema-alignment` | Queries match docs/database-schema.md — names, soft delete, snapshots, tenancy |
 | `/check-types` | No `any`, nullables handled, inputs typed |
 | `/check-security` | Secrets, auth coverage, Razorpay webhook verification, server-side trust |
 | `/check-ui-consistency` | Reuse of existing components/classes, loading/empty/error states, ₹ format |
@@ -39,8 +40,9 @@ right after building a screen).
    decide; saying "fix them" afterwards is always available.
 3. **MUST vs SHOULD.** Every rule has a severity. MUST → ❌ fail,
    SHOULD → ⚠️ warn. Soften or harden a rule by changing that one word.
-4. **Docs win.** If a skill rule ever contradicts PRD/STYLEGUIDE/SCHEMA docs,
-   the doc is the source of truth — and the conflict itself gets flagged.
+4. **Docs win.** If a skill rule ever contradicts PRD.md / docs/css-styleguide.md /
+   docs/database-schema.md, the doc is the source of truth — and the conflict
+   itself gets flagged.
 
 ## How to refine (the whole point)
 

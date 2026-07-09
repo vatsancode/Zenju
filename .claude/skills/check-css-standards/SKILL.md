@@ -1,12 +1,12 @@
 ---
 name: check-css-standards
-description: Verify this session's UI code follows STYLEGUIDE.md — no Tailwind, design tokens only, globals.css vs module.css split, BEM naming. Use after writing or editing any .tsx or .css file.
+description: Verify this session's UI code follows docs/css-styleguide.md — no Tailwind, design tokens only, globals.css vs module.css split, BEM naming. Use after writing or editing any .tsx or .css file.
 ---
 
 # Check CSS Standards
 
-Enforces `STYLEGUIDE.md` on this session's changes. If a rule here ever
-conflicts with STYLEGUIDE.md, **STYLEGUIDE.md wins** — flag the conflict too.
+Enforces `docs/css-styleguide.md` on this session's changes. If a rule here ever
+conflicts with docs/css-styleguide.md, **docs/css-styleguide.md wins** — flag the conflict too.
 
 ## Step 1 — Scope
 
@@ -16,7 +16,7 @@ This skill cares about: `*.tsx`, `*.css`, and any config files
 
 ## Step 2 — Rules
 
-### MUST rules (from STYLEGUIDE.md — the Golden Rule)
+### MUST rules (from docs/css-styleguide.md — the Golden Rule)
 
 1. **No Tailwind, ever.** No utility-string classNames
    (`className="flex items-center gap-4 text-sm"`), no `tw-` prefixes,

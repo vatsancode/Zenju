@@ -1,6 +1,6 @@
 ---
 name: update-docs
-description: Compare this session's changes against PRD.md, STYLEGUIDE.md, and SCHEMA_CONCLUSION.md; flag stale/contradicted sections and propose exact doc edits. Use after any session that changed schema, features, or styling conventions.
+description: Compare this session's changes against PRD.md, docs/css-styleguide.md, and docs/database-schema.md; flag stale/contradicted sections and propose exact doc edits. Use after any session that changed schema, features, or styling conventions.
 ---
 
 # Update Docs
@@ -19,7 +19,7 @@ All file types are relevant here.
 
 ## Step 2 — Compare changes against each doc
 
-### vs SCHEMA_CONCLUSION.md
+### vs docs/database-schema.md
 - New/renamed tables, columns, constraints, indexes, views, or RPCs used in
   code but absent from the doc → propose the exact table-row addition.
 - Enum-ish value sets that grew (new status, movement_type, etc.).
@@ -31,11 +31,11 @@ All file types are relevant here.
 - Features built beyond v1 scope, or v1-scope behaviour that shipped
   differently than specified (limits, flows, navigation items).
 - Architecture drift — e.g. PRD says **Stripe** but the codebase uses
-  **Razorpay**; PRD's 7-table schema note vs the 24-table
-  SCHEMA_CONCLUSION.md. Flag known drift once per report until fixed.
+  **Razorpay**; PRD's table-count note vs the current
+  docs/database-schema.md. Flag known drift once per report until fixed.
 - New routes/pages not in the PRD navigation structure.
 
-### vs STYLEGUIDE.md
+### vs docs/css-styleguide.md
 - New shared classes added to globals.css that the styleguide doesn't list.
 - New design tokens (CSS variables) not in the token reference.
 - New reusable component patterns worth documenting (so future sessions

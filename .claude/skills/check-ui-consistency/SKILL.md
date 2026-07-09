@@ -6,8 +6,9 @@ description: Verify this session's UI reuses existing components/classes and mat
 # Check UI Consistency
 
 Checks that this session's UI looks and behaves like the rest of the app.
-Rule sources: `STYLEGUIDE.md` (component classes) and `PRD.md` §7 UI/UX
-principles. (CSS syntax rules live in /check-css-standards — this skill is
+Rule sources: `docs/css-styleguide.md` (component classes) and `PRD.md` §7 UI/UX
+principles (PRD.md is being rewritten — until it returns, lean on the MUST
+rules below). (CSS syntax rules live in /check-css-standards — this skill is
 about reuse and UX behaviour.)
 
 ## Step 1 — Scope

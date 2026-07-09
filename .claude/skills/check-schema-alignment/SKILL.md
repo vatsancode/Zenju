@@ -1,11 +1,11 @@
 ---
 name: check-schema-alignment
-description: Verify this session's database code matches SCHEMA_CONCLUSION.md — real table/column names, soft-delete filters, snapshot rules, tenancy columns. Use after writing any Supabase query or migration.
+description: Verify this session's database code matches docs/database-schema.md — real table/column names, soft-delete filters, snapshot rules, tenancy columns. Use after writing any Supabase query or migration.
 ---
 
 # Check Schema Alignment
 
-Cross-checks this session's queries and types against `SCHEMA_CONCLUSION.md`
+Cross-checks this session's queries and types against `docs/database-schema.md`
 (the single source of truth for database design). If in doubt, re-read the
 relevant table section in that file before flagging.
 
@@ -19,7 +19,7 @@ plus `types/database.ts` and any migration/SQL files.
 
 ### MUST rules
 
-1. **Every table and column referenced must exist in SCHEMA_CONCLUSION.md.**
+1. **Every table and column referenced must exist in docs/database-schema.md.**
    Verify each `.from('...')`, `.select('...')`, `.eq('...')`, insert/update
    payload key against the doc. Typos and invented columns are failures.
 2. **No new tables or columns** invented in code without the schema doc being
