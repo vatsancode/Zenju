@@ -547,11 +547,11 @@
 }
 
 /* ── Searchable Select ───────────────────────────────────────── */
-
-.searchableSelectWrap {
-  position: relative;
-  width: 100%;
-}
+/* Trigger/search/options/no-result classes are still used by the
+   inline inventory-mapping dropdown below; the wrap/dropdown/option/
+   create/selected variants were only used by the old local
+   SearchableSelect component, now replaced by the shared
+   components/ui/SearchableSelect. */
 
 .searchableSelectTrigger {
   width: 100%;
@@ -569,25 +569,6 @@
   color: var(--color-text-tertiary);
   transition: transform var(--transition-base);
   pointer-events: none;
-}
-
-.searchableSelectTriggerOpen .searchableSelectChevron {
-  transform: rotate(180deg);
-}
-
-.searchableSelectDropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border-strong) !important;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-dropdown);
-  z-index: 100;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .searchableSelectSearch {
@@ -618,35 +599,6 @@
 .searchableSelectOptions {
   max-height: 200px;
   overflow-y: auto;
-}
-
-.searchableSelectOption {
-  width: 100%;
-  padding: 10px 12px;
-  text-align: left;
-  background: none;
-  border: none;
-  font-size: var(--text-sm);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-  color: var(--color-text-primary);
-}
-
-.searchableSelectOption:hover {
-  background: var(--color-bg-secondary);
-}
-
-.searchableSelectOptionSelected {
-  background: var(--color-bg-info);
-  color: var(--color-brand-blue);
-  font-weight: 500;
-}
-
-.searchableSelectOptionCreate {
-  color: var(--color-brand-blue);
-  font-weight: 500;
-  border-top: 1px solid var(--color-border-default);
-  background: var(--color-bg-info) !important;
 }
 
 .searchableSelectNoResult {

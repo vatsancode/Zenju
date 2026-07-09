@@ -12,11 +12,7 @@ export default function ForgotPasswordPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setIsLoading(true)
-    setTimeout(() => {
-      setIsLoading(false)
-      setState('sent')
-    }, 800)
+    // TODO: wire up Supabase auth — send password reset email
   }
 
   if (state === 'sent') {

@@ -1,10 +1,8 @@
-// Phase 3 — Inventory API routes
-// GET: list inventory items
-// POST: create inventory item
+// TODO: Inventory API routes
 export async function GET() {
-  return Response.json({ message: 'Inventory API — Phase 3' })
+  return Response.json({ message: 'Not implemented' })
 }
 
 export async function POST() {
-  return Response.json({ message: 'Inventory API — Phase 3' })
+  return Response.json({ message: 'Not implemented' })
 }

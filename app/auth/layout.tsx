@@ -44,9 +44,9 @@ export default function AuthLayout({
 
       <div className={styles.logo}>
         <div className={styles.logoMark}>
-          <span>SI</span>
+          <span>ZJ</span>
         </div>
-        <span className={styles.logoText}>SmartInventory AI</span>
+        <span className={styles.logoText}>ZenJu</span>
       </div>
 
       <div className={styles.card}>

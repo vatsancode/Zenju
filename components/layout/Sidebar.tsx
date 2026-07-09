@@ -21,8 +21,8 @@ export default function Sidebar() {
       {/* A. Logo */}
       <div className="sidebar__logo">
         <div className={styles.logoRow}>
-          <div className={styles.logoMark}>SI</div>
-          <span>SmartInventory <span className={styles.logoAccent}>AI</span></span>
+          <div className={styles.logoMark}>ZJ</div>
+          <span>Zen<span className={styles.logoAccent}>Ju</span></span>
         </div>
       </div>
 
@@ -60,7 +60,7 @@ export default function Sidebar() {
         </Link>
         <button
           className={`nav-item ${styles.logoutBtn}`}
-          onClick={() => router.push('/auth/login')}
+          onClick={() => router.push('/api/auth/force-logout')}
         >
           <div className="nav-item__bar"></div>
           <span>Logout</span>

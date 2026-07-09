@@ -1,8 +1,8 @@
-// Phase 4 — Catalogue API routes
+// TODO: Catalogue API routes
 export async function GET() {
-  return Response.json({ message: 'Catalogue API — Phase 4' })
+  return Response.json({ message: 'Not implemented' })
 }
 
 export async function POST() {
-  return Response.json({ message: 'Catalogue API — Phase 4' })
+  return Response.json({ message: 'Not implemented' })
 }

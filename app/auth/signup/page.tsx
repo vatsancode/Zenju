@@ -37,19 +37,12 @@ export default function SignupPage() {
       setStep('otp')
     } else if (step === 'profile') {
       if (password !== confirmPassword) return
-      setIsLoading(true)
-      setTimeout(() => {
-        router.push('/auth/onboarding')
-      }, 800)
+      // TODO: wire up Supabase auth — create account
     }
   }
 
   function submitOtp(digits: string[]) {
-    setIsLoading(true)
-    setTimeout(() => {
-      setIsLoading(false)
-      setStep('profile')
-    }, 800)
+    // TODO: wire up Supabase auth
   }
 
   function handleOtpDigitChange(index: number, rawValue: string) {
@@ -244,10 +237,7 @@ export default function SignupPage() {
       <button
         type="button"
         className="btn btn--ghost btn--full"
-        onClick={() => {
-          setIsLoading(true)
-          setTimeout(() => router.push('/auth/onboarding'), 800)
-        }}
+        onClick={() => { /* TODO: wire up Google OAuth */ }}
         disabled={isLoading}
       >
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

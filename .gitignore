@@ -32,3 +32,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# architecture decision records — local reference only, not committed
+/docs/decisions/
+
+# Claude Code worktrees — local session artifacts, not project source
+/.claude/worktrees/

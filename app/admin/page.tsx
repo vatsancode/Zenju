@@ -1,14 +1,25 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Plus, Search, KeyRound, Power, X, Eye, EyeOff, Check } from 'lucide-react'
+import SearchableSelect from '@/components/ui/SearchableSelect'
+import type { BusinessType } from '@/types/database'
 import styles from './admin.module.css'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type BusinessStatus = 'active' | 'suspended'
-type BusinessType = 'retail' | 'grocery' | 'cafe' | 'health' | 'repair' | 'artisan'
 type BusinessPlan = 'trial' | 'starter' | 'pro'
+type BusinessTypeSummary = Pick<BusinessType, 'id' | 'name'>
+
+interface BusinessTypesGetResponse {
+  business_types: BusinessTypeSummary[]
+}
+
+interface BusinessTypesPostResponse {
+  business_type?: BusinessTypeSummary
+  error?: string
+}
 
 interface Business {
   id: string
@@ -16,7 +27,7 @@ interface Business {
   owner_name: string
   email: string
   phone: string
-  business_type: BusinessType
+  business_type: string
   plan: BusinessPlan
   status: BusinessStatus
   created_at: string
@@ -31,7 +42,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Ramesh Kumar',
     email: 'ramesh@rkdryfruits.com',
     phone: '+91 98765 43210',
-    business_type: 'grocery',
+    business_type: 'Grocery',
     plan: 'trial',
     status: 'active',
     created_at: '2024-01-15T10:00:00Z',
@@ -42,7 +53,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Priya Nair',
     email: 'priya@greenleaf.in',
     phone: '+91 87654 32109',
-    business_type: 'health',
+    business_type: 'Health & Beauty',
     plan: 'trial',
     status: 'active',
     created_at: '2024-02-03T09:00:00Z',
@@ -53,7 +64,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Arun Mehta',
     email: 'arun@urbancafe.in',
     phone: '+91 76543 21098',
-    business_type: 'cafe',
+    business_type: 'Café',
     plan: 'trial',
     status: 'suspended',
     created_at: '2024-02-18T11:30:00Z',
@@ -64,7 +75,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Suresh Balaji',
     email: 'suresh@sriramtex.com',
     phone: '+91 65432 10987',
-    business_type: 'retail',
+    business_type: 'Retail',
     plan: 'trial',
     status: 'active',
     created_at: '2024-03-05T08:00:00Z',
@@ -75,7 +86,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Dinesh Rajan',
     email: 'dinesh@fixitshop.in',
     phone: '+91 54321 09876',
-    business_type: 'repair',
+    business_type: 'Repair Shop',
     plan: 'trial',
     status: 'active',
     created_at: '2024-03-20T14:00:00Z',
@@ -86,7 +97,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Meera Iyer',
     email: 'meera@artisanpottery.in',
     phone: '+91 43210 98765',
-    business_type: 'artisan',
+    business_type: 'Artisan',
     plan: 'trial',
     status: 'suspended',
     created_at: '2024-04-10T10:00:00Z',
@@ -97,7 +108,7 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Vijay Krishnan',
     email: 'vijay@vijaymart.com',
     phone: '+91 32109 87654',
-    business_type: 'grocery',
+    business_type: 'Grocery',
     plan: 'trial',
     status: 'active',
     created_at: '2024-05-01T09:30:00Z',
@@ -108,20 +119,11 @@ const INITIAL_BUSINESSES: Business[] = [
     owner_name: 'Anitha Raj',
     email: 'anitha@bellabeauty.in',
     phone: '+91 21098 76543',
-    business_type: 'health',
+    business_type: 'Health & Beauty',
     plan: 'trial',
     status: 'active',
     created_at: '2024-05-22T12:00:00Z',
   },
-]
-
-const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
-  { value: 'retail', label: 'Retail' },
-  { value: 'grocery', label: 'Grocery' },
-  { value: 'cafe', label: 'Café' },
-  { value: 'health', label: 'Health & Beauty' },
-  { value: 'repair', label: 'Repair Shop' },
-  { value: 'artisan', label: 'Artisan' },
 ]
 
 // ─── Blank form states ────────────────────────────────────────────────────────
@@ -131,7 +133,7 @@ const BLANK_CREATE = {
   owner_name: '',
   email: '',
   phone: '',
-  business_type: '' as BusinessType | '',
+  business_type_id: '',
   password: '',
   confirmPassword: '',
 }
@@ -150,10 +152,6 @@ function formatDate(iso: string): string {
   return `${day} ${month} ${year}`
 }
 
-function getTypeLabel(type: BusinessType): string {
-  return BUSINESS_TYPES.find(t => t.value === type)?.label ?? type
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
@@ -169,11 +167,52 @@ export default function AdminPage() {
   const [createForm, setCreateForm] = useState({ ...BLANK_CREATE })
   const [createShowPwd, setCreateShowPwd] = useState(false)
   const [createErrors, setCreateErrors] = useState<Partial<Record<keyof typeof BLANK_CREATE, string>>>({})
+  const [creatingBusinessType, setCreatingBusinessType] = useState(false)
 
   // Reset password form
   const [resetForm, setResetForm] = useState({ ...BLANK_RESET })
   const [resetShowPwd, setResetShowPwd] = useState(false)
   const [resetErrors, setResetErrors] = useState<Partial<Record<keyof typeof BLANK_RESET, string>>>({})
+
+  // Business types — fetched from the real database, not hardcoded
+  const [businessTypes, setBusinessTypes] = useState<BusinessTypeSummary[]>([])
+
+  useEffect(() => {
+    fetch('/api/business-types')
+      .then(res => res.json() as Promise<BusinessTypesGetResponse>)
+      .then(data => setBusinessTypes(data.business_types ?? []))
+      .catch(() => setCreateErrors(e => ({ ...e, business_type_id: 'Could not load business types. Refresh to try again.' })))
+  }, [])
+
+  async function handleCreateBusinessType(name: string) {
+    setCreatingBusinessType(true)
+    setCreateErrors(e => ({ ...e, business_type_id: undefined }))
+
+    try {
+      const res = await fetch('/api/business-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      const data = await res.json() as BusinessTypesPostResponse
+      const businessType = data.business_type
+
+      if (res.ok && businessType) {
+        setBusinessTypes(prev =>
+          prev.some(t => t.id === businessType.id)
+            ? prev
+            : [...prev, businessType].sort((a, b) => a.name.localeCompare(b.name))
+        )
+        setCreateForm(f => ({ ...f, business_type_id: businessType.id }))
+      } else {
+        setCreateErrors(e => ({ ...e, business_type_id: 'Could not add business type. Try again.' }))
+      }
+    } catch {
+      setCreateErrors(e => ({ ...e, business_type_id: 'Could not add business type. Try again.' }))
+    } finally {
+      setCreatingBusinessType(false)
+    }
+  }
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -204,6 +243,7 @@ export default function AdminPage() {
     setCreateForm({ ...BLANK_CREATE })
     setCreateErrors({})
     setCreateShowPwd(false)
+    setCreatingBusinessType(false)
     setResetForm({ ...BLANK_RESET })
     setResetErrors({})
     setResetShowPwd(false)
@@ -227,20 +267,21 @@ export default function AdminPage() {
     if (!createForm.owner_name.trim()) errors.owner_name = 'Required'
     if (!createForm.email.trim()) errors.email = 'Required'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createForm.email)) errors.email = 'Invalid email'
-    if (!createForm.business_type) errors.business_type = 'Required'
+    if (!createForm.business_type_id) errors.business_type_id = 'Required'
     if (!createForm.password) errors.password = 'Required'
     else if (createForm.password.length < 8) errors.password = 'Minimum 8 characters'
     if (createForm.confirmPassword !== createForm.password) errors.confirmPassword = 'Passwords do not match'
 
     if (Object.keys(errors).length > 0) { setCreateErrors(errors); return }
 
+    const selectedType = businessTypes.find(t => t.id === createForm.business_type_id)
     const newBusiness: Business = {
       id: `b${Date.now()}`,
       business_name: createForm.business_name.trim(),
       owner_name: createForm.owner_name.trim(),
       email: createForm.email.trim(),
       phone: createForm.phone.trim(),
-      business_type: createForm.business_type as BusinessType,
+      business_type: selectedType?.name ?? '',
       plan: 'trial',
       status: 'active',
       created_at: new Date().toISOString(),
@@ -366,7 +407,7 @@ export default function AdminPage() {
                     <td>
                       <div className={styles.businessCell}>
                         <span className={styles.businessName}>{b.business_name}</span>
-                        <span className="badge badge--neutral">{getTypeLabel(b.business_type)}</span>
+                        <span className="badge badge--neutral">{b.business_type}</span>
                       </div>
                     </td>
                     <td>{b.owner_name}</td>
@@ -463,18 +504,16 @@ export default function AdminPage() {
               {/* Business Type */}
               <div className="form-group">
                 <label className="form-label form-label--required">Business Type</label>
-                <select
-                  className={`form-select${createErrors.business_type ? ' form-select--error' : ''}`}
-                  value={createForm.business_type}
-                  onChange={e => setCreateForm(f => ({ ...f, business_type: e.target.value as BusinessType }))}
-                >
-                  <option value="">Select type…</option>
-                  {BUSINESS_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-                {createErrors.business_type && (
-                  <span className="form-error">{createErrors.business_type}</span>
+                <SearchableSelect
+                  value={createForm.business_type_id}
+                  options={businessTypes.map(t => ({ value: t.id, label: t.name }))}
+                  onChange={v => setCreateForm(f => ({ ...f, business_type_id: v }))}
+                  onCreate={handleCreateBusinessType}
+                  placeholder={creatingBusinessType ? 'Adding…' : 'Select type…'}
+                  disabled={creatingBusinessType}
+                />
+                {createErrors.business_type_id && (
+                  <span className="form-error">{createErrors.business_type_id}</span>
                 )}
               </div>
 
@@ -495,7 +534,7 @@ export default function AdminPage() {
 
               {/* Phone */}
               <div className="form-group">
-                <label className="form-label">Phone</label>
+                <label className="form-label">Phone (WhatsApp preferred)</label>
                 <input
                   className="form-input"
                   placeholder="+91 98765 43210"

@@ -10,10 +10,7 @@ export default function ResetPasswordPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setIsLoading(true)
-    setTimeout(() => {
-      router.push('/auth/login')
-    }, 800)
+    // TODO: wire up Supabase auth — update password
   }
 
   return (

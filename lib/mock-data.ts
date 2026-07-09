@@ -435,10 +435,4 @@ export const mockCustomers: MockCustomer[] = [
   { id: 'c5', name: 'Kavitha Nair', phone: '8877665544', description: 'Health-conscious — prefers organic mix', total_orders: 19, last_order_at: '2024-06-17T11:20:00Z' },
 ]
 
-export const formatINR = (amount: number): string => {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
+export { formatINR } from './utils/format'

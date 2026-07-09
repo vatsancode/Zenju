@@ -1,5 +1,6 @@
-# Schema Conclusion
+# Database Schema — ZenJu
 > Final agreed database structure decisions. Single source of truth for all database design decisions.
+> See [architecture.md](./architecture.md) for how these tables map to folders, and [css-styleguide.md](./css-styleguide.md) for the UI conventions.
 
 ---
 
@@ -27,10 +28,34 @@ The top-level tenant. Every other table traces back to this. One row per registe
 | `id` | UUID v7 | Primary key |
 | `name` | TEXT | Business trading name |
 | `owner_user_id` | UUID | FK → auth.users.id — the account owner |
+| `business_type_id` | UUID | FK → business_types.id — nullable |
 | `subscription_plan` | TEXT | `'free'` / `'pro'` |
 | `currency` | TEXT | DEFAULT `'INR'` — business-level currency |
 | `created_at` | TIMESTAMP | Auto-set |
 | `updated_at` | TIMESTAMP | Auto-updated |
+
+---
+
+### Table — `business_types`
+Lookup list of business categories (e.g. "Grocery", "Cafe") shown in the super-admin "Add Business" form. Super-admin-only — no RLS policies, only the service-role client can read/write it. Names are unique case-insensitively so quick-add can't create near-duplicate entries.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `name` | TEXT | e.g. "Grocery" — unique (case-insensitive) |
+| `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+
+---
+
+### Table — `admin_users`
+Allowlist of platform super-admins — separate from regular business staff. Not multi-tenant (no `business_id`) since admins operate across all businesses. RLS allows a user to check "am I admin" (self-lookup only); adding a new admin requires the service-role client — always a manual, deliberate action, not something the app does on its own.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `auth_user_id` | UUID | FK → auth.users.id — unique, one admin row per auth account |
+| `created_at` | TIMESTAMP | Auto-set |
 
 ---
 
@@ -754,6 +779,8 @@ CREATE INDEX ON offers(business_id, active)  WHERE active = true AND deleted_at 
 | 0b | `branches` | Foundation | Physical locations of a business |
 | 0c | `channels` | Foundation | Sales channels (retail, wholesale, online) |
 | 0d | `business_users` | Foundation | Staff/users per business — roles, branch access, audit identity |
+| — | `business_types` | Foundation | Lookup list of business categories — super-admin-only, no RLS write policy |
+| — | `admin_users` | Foundation | Platform super-admin allowlist — self-lookup RLS only |
 | 1 | `inventory_items` | Inventory | Raw stock identity — category_id + unit_id linked properly |
 | 2 | `attribute_definitions` | Inventory | Attribute type names per item (Size, Color, etc.) |
 | 3 | `inventory_variants` | Inventory | Each unique version of a product |

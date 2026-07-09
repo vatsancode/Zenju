@@ -1,3 +1,15 @@
+# PRD.md — SmartInventory AI (v1) — ARCHIVED / OUTDATED
+
+> **ARCHIVED — do not use as a current reference.**
+> This document describes the original 7-table schema (`users`, `inventory_items`, `catalogue_items`,
+> `catalogue_components`, `sales`, `sale_items`, `stock_movements`) with `user_id`-based filtering.
+> The project has since moved to the 24-table multi-tenant schema in
+> [`docs/database-schema.md`](../database-schema.md), which uses `business_id` instead of `user_id`.
+> Kept here for historical context only — module scope and user flows are still broadly accurate,
+> but any rule referencing tables, columns, or query patterns is stale.
+
+---
+
 # PRD.md — SmartInventory AI (v1)
 > This is the single source of truth for WHAT to build in v1.
 > Paste this into every Claude session alongside SCHEMA.md.

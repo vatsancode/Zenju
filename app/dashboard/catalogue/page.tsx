@@ -13,6 +13,7 @@ import {
 } from '@/lib/mock-data'
 import { Tag, Plus, X, Check, Search, ChevronDown, Pencil, Archive, RotateCcw, Filter } from 'lucide-react'
 import type { Category } from '@/types/database'
+import SearchableSelect from '@/components/ui/SearchableSelect'
 import styles from './catalogue.module.css'
 
 // ─── Local types ──────────────────────────────────────────────────────────────
@@ -67,111 +68,6 @@ type MappedInventoryItem = {
   selected_variants?: string[] // variant IDs
 }
 
-// ─── Searchable select component ──────────────────────────────────────────────
-
-type SearchableOption = { value: string; label: string }
-
-function SearchableSelect({
-  value,
-  options,
-  onChange,
-  onCreate,
-  placeholder = 'Select…',
-  disabled = false,
-}: {
-  value: string
-  options: SearchableOption[]
-  onChange: (value: string) => void
-  onCreate: (name: string) => void
-  placeholder?: string
-  disabled?: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  const selected = options.find(o => o.value === value)
-  const filtered = options.filter(o =>
-    o.label.toLowerCase().includes(search.toLowerCase())
-  )
-
-  const showCreateSuggestion =
-    search.trim() &&
-    !filtered.find(o => o.label.toLowerCase() === search.trim().toLowerCase())
-
-  return (
-    <div className={styles.searchableSelectWrap}>
-      <button
-        type="button"
-        className={`form-select ${styles.searchableSelectTrigger} ${open ? styles.searchableSelectTriggerOpen : ''
-          }`}
-        disabled={disabled}
-        onClick={() => {
-          setOpen(!open)
-          if (!open) setSearch('')
-        }}
-      >
-        <span className={selected ? '' : 'text-tertiary'}>
-          {selected?.label ?? placeholder}
-        </span>
-        <ChevronDown size={14} className={styles.searchableSelectChevron} />
-      </button>
-
-      {open && (
-        <div className={styles.searchableSelectDropdown} ref={dropdownRef}>
-          <div className={styles.searchableSelectSearch}>
-            <Search size={14} />
-            <input
-              autoFocus
-              placeholder="Search..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && showCreateSuggestion) {
-                  onCreate(search.trim())
-                  setOpen(false)
-                }
-              }}
-            />
-          </div>
-          <div className={styles.searchableSelectOptions}>
-            {filtered.length > 0 ? (
-              filtered.map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`${styles.searchableSelectOption} ${opt.value === value ? styles.searchableSelectOptionSelected : ''
-                    }`}
-                  onMouseDown={() => {
-                    onChange(opt.value)
-                    setOpen(false)
-                  }}
-                >
-                  {opt.label}
-                </button>
-              ))
-            ) : !showCreateSuggestion ? (
-              <div className={styles.searchableSelectNoResult}>No results found</div>
-            ) : null}
-
-            {showCreateSuggestion && (
-              <button
-                type="button"
-                className={`${styles.searchableSelectOption} ${styles.searchableSelectOptionCreate}`}
-                onMouseDown={() => {
-                  onCreate(search.trim())
-                  setOpen(false)
-                }}
-              >
-                + Create "{search.trim()}"
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1478,12 +1374,13 @@ export default function CataloguePage() {
                           const newId = `new-cat-${Date.now()}`
                           const newCategory: Category = {
                             id: newId,
-                            user_id: 'mock-user-1',
+                            business_id: 'mock-business-1',
                             name,
                             parent_id: null,
                             is_archived: false,
-                            sort_order: localCategories.length,
-                            created_at: new Date().toISOString()
+                            display_order: localCategories.length,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
                           }
                           setLocalCategories(prev => [...prev, newCategory])
                           setNewItemCategoryId(newId)
@@ -1506,12 +1403,13 @@ export default function CataloguePage() {
                           const newId = `new-sub-${Date.now()}`
                           const newSub: Category = {
                             id: newId,
-                            user_id: 'mock-user-1',
+                            business_id: 'mock-business-1',
                             name,
                             parent_id: newItemCategoryId,
                             is_archived: false,
-                            sort_order: localCategories.length,
-                            created_at: new Date().toISOString()
+                            display_order: localCategories.length,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
                           }
                           setLocalCategories(prev => [...prev, newSub])
                           setNewItemSubCategoryId(newId)

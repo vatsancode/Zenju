@@ -1,7 +1,6 @@
-# STYLEGUIDE.md — SmartInventory AI (v1)
+# CSS Styleguide — ZenJu
 > CSS reference for Claude. Read this before writing any UI code.
-> Paste alongside PRD.md and SCHEMA.md at the start of every session.
-> Last synced with: PRD.md v1 Final + SCHEMA.md v1 Final
+> See [database-schema.md](./database-schema.md) for the current schema and [architecture.md](./architecture.md) for the folder map.
 
 ---
 
@@ -559,5 +558,5 @@ const formatINR = (amount: number): string => {
 
 ---
 
-*Last updated: SmartInventory AI — STYLEGUIDE.md v1 Final*
+*Last updated: ZenJu — css-styleguide.md v1 Final*
 *Covers: globals.css v1, CSS Modules pattern, dark mode toggle*

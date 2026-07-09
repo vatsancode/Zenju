@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import '@/styles/globals.css'
 
 export const metadata: Metadata = {
-  title: 'SmartInventory AI',
+  title: 'ZenJu',
   description: 'Inventory and POS platform for small businesses in India',
 }
 

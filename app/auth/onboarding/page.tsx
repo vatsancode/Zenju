@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { mockUser } from '@/lib/mock-data'
+// TODO: import Supabase client when wiring up real auth
 import styles from './onboarding.module.css'
 
 const CATEGORY_OPTIONS = [
@@ -17,7 +17,7 @@ const CATEGORY_OPTIONS = [
 export default function OnboardingPage() {
   const router = useRouter()
   const [isLoading, setIsLoading]     = useState(false)
-  const [businessName, setBusinessName] = useState(mockUser.business_name)
+  const [businessName, setBusinessName] = useState('')
   const [category, setCategory]       = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -35,10 +35,7 @@ export default function OnboardingPage() {
   function handleContinue(e: React.FormEvent) {
     e.preventDefault()
     if (!businessName || !category || isLoading) return
-    setIsLoading(true)
-    setTimeout(() => {
-      router.push('/dashboard')
-    }, 800)
+    // TODO: wire up Supabase — create business, branch, channel, business_user
   }
 
   function selectOption(value: string) {

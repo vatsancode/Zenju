@@ -3,23 +3,65 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
+import { resolveLoginDestination } from '@/lib/services/auth'
 import styles from './login.module.css'
 
 export default function LoginPage() {
   const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  function handleLogin() {
+  async function handleLogin() {
+    setError(null)
     setIsLoading(true)
-    setTimeout(() => {
+    const supabase = createClient()
+
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (signInError || !data.user) {
+      setError('Invalid email or password.')
+      setIsLoading(false)
+      return
+    }
+
+    const { destination, error: lookupError } = await resolveLoginDestination(supabase, data.user.id)
+
+    if (lookupError) {
+      setError(lookupError)
+      setIsLoading(false)
+      return
+    }
+
+    if (destination === 'admin') {
+      router.push('/admin')
+      return
+    }
+
+    if (destination === 'business') {
       router.push('/dashboard')
-    }, 800)
+      return
+    }
+
+    // Real login, but no admin badge and no active business — suspended or orphaned account
+    await supabase.auth.signOut()
+    setError('Your account has been suspended. Contact support.')
+    setIsLoading(false)
   }
 
   return (
     <>
       <h2 className={styles.heading}>Welcome back</h2>
       <p className={`text-secondary ${styles.subtext}`}>Log in to your account</p>
+
+      {error && (
+        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+          <div className="alert__dot" />
+          <p className="alert__body">{error}</p>
+        </div>
+      )}
 
       <form className={styles.formFields} onSubmit={(e) => { e.preventDefault(); handleLogin() }}>
         <div className="form-group">
@@ -30,6 +72,8 @@ export default function LoginPage() {
             type="email"
             placeholder="you@example.com"
             autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
         </div>
 
@@ -41,6 +85,8 @@ export default function LoginPage() {
             type="password"
             placeholder="••••••••"
             autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
           />
           <div className={styles.forgotRow}>
             <Link href="/auth/forgot-password" className={styles.forgotLink}>
@@ -63,7 +109,7 @@ export default function LoginPage() {
       <button
         type="button"
         className="btn btn--ghost btn--full"
-        onClick={handleLogin}
+        onClick={() => { /* TODO: wire up Google OAuth */ }}
         disabled={isLoading}
       >
         <svg

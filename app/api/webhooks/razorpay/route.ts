@@ -1,5 +1,4 @@
-// Phase 7 — Razorpay webhook handler
-// Handles payment.captured, subscription.activated, subscription.cancelled events
+// TODO: Razorpay webhook handler
 export async function POST() {
-  return Response.json({ message: 'Razorpay webhook — Phase 7' })
+  return Response.json({ message: 'Not implemented' })
 }

@@ -1,0 +1,106 @@
+.wrap {
+  position: relative;
+  width: 100%;
+}
+
+.trigger {
+  width: 100%;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--space-2) !important;
+  text-align: left;
+  cursor: pointer;
+  background-image: none !important;
+}
+
+.chevron {
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-base);
+  pointer-events: none;
+}
+
+.triggerOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-strong) !important;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 100;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-default);
+  background: var(--color-bg-secondary);
+}
+
+.search svg {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.search input {
+  flex: 1;
+  border: none;
+  background: none !important;
+  outline: none;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  padding: 0;
+  min-width: 0;
+}
+
+.options {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.option {
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  color: var(--color-text-primary);
+}
+
+.option:hover {
+  background: var(--color-bg-secondary);
+}
+
+.optionSelected {
+  background: var(--color-bg-info);
+  color: var(--color-brand-blue);
+  font-weight: 500;
+}
+
+.optionCreate {
+  color: var(--color-brand-blue);
+  font-weight: 500;
+  border-top: 1px solid var(--color-border-default);
+  background: var(--color-bg-info) !important;
+}
+
+.noResult {
+  padding: var(--space-3);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
