@@ -85,7 +85,9 @@
       "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\\\\.claude\\\\plugins\" -Recurse -Filter \"SKILL.md\" -ErrorAction SilentlyContinue | Select-Object -First 30 FullName)",
       "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\\\\.claude\\\\plugins\" -Directory -ErrorAction SilentlyContinue | Select-Object Name; Write-Output \"---\"; Get-ChildItem -Path \"$env:USERPROFILE\\\\.claude\\\\plugins\" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq \"skills\" } | Select-Object FullName)",
       "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\\\\.claude\\\\plugins\" -ErrorAction SilentlyContinue -Force)",
-      "Bash(mkdir -p \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup\" && cp -r \"C:/Project/ZenJu/Zenju dev/.claude/skills\" \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup/\" && ls \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup/skills\")"
+      "Bash(mkdir -p \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup\" && cp -r \"C:/Project/ZenJu/Zenju dev/.claude/skills\" \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup/\" && ls \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup/skills\")",
+      "Bash(ls app/api)",
+      "Bash(find app/api -maxdepth 2 -type d)"
     ]
   }
 }

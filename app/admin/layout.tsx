@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { isCurrentUserAdmin } from '@/lib/supabase/admin'
 import styles from './admin.module.css'
@@ -21,7 +20,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
           <div className={styles.navRight}>
             <span className={styles.adminBadge}>Super Admin</span>
-            <Link href="/api/auth/force-logout" className={styles.navSignOut}>Sign out</Link>
+            <form action="/api/auth/force-logout" method="POST">
+              <button type="submit" className={styles.navSignOut}>Sign out</button>
+            </form>
           </div>
         </div>
       </header>

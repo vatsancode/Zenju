@@ -9,7 +9,8 @@ import styles from './admin.module.css'
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type BusinessStatus = 'active' | 'suspended'
-type BusinessPlan = 'trial' | 'starter' | 'pro'
+// Mirrors the DB's subscription_plan CHECK constraint ('free' | 'pro') — no separate trial/starter tier exists yet.
+type BusinessPlan = 'free' | 'pro'
 type BusinessTypeSummary = Pick<BusinessType, 'id' | 'name'>
 
 interface BusinessTypesGetResponse {
@@ -21,110 +22,38 @@ interface BusinessTypesPostResponse {
   error?: string
 }
 
+interface BusinessRecord {
+  id: string
+  business_name: string
+  owner_name: string
+  email: string
+  phone: string
+  business_type_id: string | null
+  plan: BusinessPlan
+  created_at: string
+}
+
+interface BusinessesGetResponse {
+  businesses?: BusinessRecord[]
+  error?: string
+}
+
+interface BusinessesPostResponse {
+  business?: BusinessRecord
+  error?: string
+}
+
 interface Business {
   id: string
   business_name: string
   owner_name: string
   email: string
   phone: string
-  business_type: string
+  business_type_id: string | null
   plan: BusinessPlan
   status: BusinessStatus
   created_at: string
 }
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const INITIAL_BUSINESSES: Business[] = [
-  {
-    id: 'b1',
-    business_name: 'RK Dry Fruits & Snacks',
-    owner_name: 'Ramesh Kumar',
-    email: 'ramesh@rkdryfruits.com',
-    phone: '+91 98765 43210',
-    business_type: 'Grocery',
-    plan: 'trial',
-    status: 'active',
-    created_at: '2024-01-15T10:00:00Z',
-  },
-  {
-    id: 'b2',
-    business_name: 'Green Leaf Pharmacy',
-    owner_name: 'Priya Nair',
-    email: 'priya@greenleaf.in',
-    phone: '+91 87654 32109',
-    business_type: 'Health & Beauty',
-    plan: 'trial',
-    status: 'active',
-    created_at: '2024-02-03T09:00:00Z',
-  },
-  {
-    id: 'b3',
-    business_name: 'Urban Café',
-    owner_name: 'Arun Mehta',
-    email: 'arun@urbancafe.in',
-    phone: '+91 76543 21098',
-    business_type: 'Café',
-    plan: 'trial',
-    status: 'suspended',
-    created_at: '2024-02-18T11:30:00Z',
-  },
-  {
-    id: 'b4',
-    business_name: 'Sri Ram Textiles',
-    owner_name: 'Suresh Balaji',
-    email: 'suresh@sriramtex.com',
-    phone: '+91 65432 10987',
-    business_type: 'Retail',
-    plan: 'trial',
-    status: 'active',
-    created_at: '2024-03-05T08:00:00Z',
-  },
-  {
-    id: 'b5',
-    business_name: 'Fix It Workshop',
-    owner_name: 'Dinesh Rajan',
-    email: 'dinesh@fixitshop.in',
-    phone: '+91 54321 09876',
-    business_type: 'Repair Shop',
-    plan: 'trial',
-    status: 'active',
-    created_at: '2024-03-20T14:00:00Z',
-  },
-  {
-    id: 'b6',
-    business_name: 'Artisan Pottery Studio',
-    owner_name: 'Meera Iyer',
-    email: 'meera@artisanpottery.in',
-    phone: '+91 43210 98765',
-    business_type: 'Artisan',
-    plan: 'trial',
-    status: 'suspended',
-    created_at: '2024-04-10T10:00:00Z',
-  },
-  {
-    id: 'b7',
-    business_name: 'Vijay Supermart',
-    owner_name: 'Vijay Krishnan',
-    email: 'vijay@vijaymart.com',
-    phone: '+91 32109 87654',
-    business_type: 'Grocery',
-    plan: 'trial',
-    status: 'active',
-    created_at: '2024-05-01T09:30:00Z',
-  },
-  {
-    id: 'b8',
-    business_name: 'Bella Beauty & Care',
-    owner_name: 'Anitha Raj',
-    email: 'anitha@bellabeauty.in',
-    phone: '+91 21098 76543',
-    business_type: 'Health & Beauty',
-    plan: 'trial',
-    status: 'active',
-    created_at: '2024-05-22T12:00:00Z',
-  },
-]
 
 // ─── Blank form states ────────────────────────────────────────────────────────
 
@@ -154,8 +83,16 @@ function formatDate(iso: string): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+// The DB has no status column yet (suspend/activate isn't persisted) — every
+// business fetched from the API is shown as active until that's built.
+function toBusiness(record: BusinessRecord): Business {
+  return { ...record, status: 'active' }
+}
+
 export default function AdminPage() {
-  const [businesses, setBusinesses] = useState<Business[]>(INITIAL_BUSINESSES)
+  const [businesses, setBusinesses] = useState<Business[]>([])
+  const [loadingBusinesses, setLoadingBusinesses] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | BusinessStatus>('all')
 
@@ -168,6 +105,8 @@ export default function AdminPage() {
   const [createShowPwd, setCreateShowPwd] = useState(false)
   const [createErrors, setCreateErrors] = useState<Partial<Record<keyof typeof BLANK_CREATE, string>>>({})
   const [creatingBusinessType, setCreatingBusinessType] = useState(false)
+  const [createSubmitting, setCreateSubmitting] = useState(false)
+  const [createSubmitError, setCreateSubmitError] = useState<string | null>(null)
 
   // Reset password form
   const [resetForm, setResetForm] = useState({ ...BLANK_RESET })
@@ -182,6 +121,20 @@ export default function AdminPage() {
       .then(res => res.json() as Promise<BusinessTypesGetResponse>)
       .then(data => setBusinessTypes(data.business_types ?? []))
       .catch(() => setCreateErrors(e => ({ ...e, business_type_id: 'Could not load business types. Refresh to try again.' })))
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/businesses')
+      .then(res => res.json() as Promise<BusinessesGetResponse>)
+      .then(data => {
+        if (!data.businesses) {
+          setListError(data.error ?? 'Could not load businesses.')
+          return
+        }
+        setBusinesses(data.businesses.map(toBusiness))
+      })
+      .catch(() => setListError('Could not load businesses. Refresh to try again.'))
+      .finally(() => setLoadingBusinesses(false))
   }, [])
 
   async function handleCreateBusinessType(name: string) {
@@ -235,6 +188,11 @@ export default function AdminPage() {
     suspended: businesses.filter(b => b.status === 'suspended').length,
   }), [businesses])
 
+  const businessTypeNameById = useMemo(
+    () => new Map(businessTypes.map(t => [t.id, t.name])),
+    [businessTypes]
+  )
+
   // ── Modal helpers ─────────────────────────────────────────────────────────────
 
   function closeModal() {
@@ -244,6 +202,8 @@ export default function AdminPage() {
     setCreateErrors({})
     setCreateShowPwd(false)
     setCreatingBusinessType(false)
+    setCreateSubmitting(false)
+    setCreateSubmitError(null)
     setResetForm({ ...BLANK_RESET })
     setResetErrors({})
     setResetShowPwd(false)
@@ -261,33 +221,50 @@ export default function AdminPage() {
 
   // ── Submit handlers ───────────────────────────────────────────────────────────
 
-  function handleCreateSubmit() {
+  async function handleCreateSubmit() {
     const errors: Partial<Record<keyof typeof BLANK_CREATE, string>> = {}
     if (!createForm.business_name.trim()) errors.business_name = 'Required'
     if (!createForm.owner_name.trim()) errors.owner_name = 'Required'
     if (!createForm.email.trim()) errors.email = 'Required'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createForm.email)) errors.email = 'Invalid email'
     if (!createForm.business_type_id) errors.business_type_id = 'Required'
+    if (!createForm.phone.trim()) errors.phone = 'Required for the business owner'
     if (!createForm.password) errors.password = 'Required'
     else if (createForm.password.length < 8) errors.password = 'Minimum 8 characters'
     if (createForm.confirmPassword !== createForm.password) errors.confirmPassword = 'Passwords do not match'
 
     if (Object.keys(errors).length > 0) { setCreateErrors(errors); return }
 
-    const selectedType = businessTypes.find(t => t.id === createForm.business_type_id)
-    const newBusiness: Business = {
-      id: `b${Date.now()}`,
-      business_name: createForm.business_name.trim(),
-      owner_name: createForm.owner_name.trim(),
-      email: createForm.email.trim(),
-      phone: createForm.phone.trim(),
-      business_type: selectedType?.name ?? '',
-      plan: 'trial',
-      status: 'active',
-      created_at: new Date().toISOString(),
+    setCreateSubmitting(true)
+    setCreateSubmitError(null)
+
+    try {
+      const res = await fetch('/api/businesses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_name: createForm.business_name.trim(),
+          owner_name: createForm.owner_name.trim(),
+          business_type_id: createForm.business_type_id,
+          email: createForm.email.trim(),
+          phone: createForm.phone.trim(),
+          password: createForm.password,
+        }),
+      })
+      const data = await res.json() as BusinessesPostResponse
+
+      if (!res.ok || !data.business) {
+        setCreateSubmitError(data.error ?? 'Could not create business. Please try again.')
+        return
+      }
+
+      setBusinesses(prev => [toBusiness(data.business!), ...prev])
+      closeModal()
+    } catch {
+      setCreateSubmitError('Could not create business. Please try again.')
+    } finally {
+      setCreateSubmitting(false)
     }
-    setBusinesses(prev => [newBusiness, ...prev])
-    closeModal()
   }
 
   function handleResetSubmit() {
@@ -374,8 +351,18 @@ export default function AdminPage() {
       </div>
 
       {/* ── Table ────────────────────────────────────────────────── */}
+      {listError && (
+        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+          <div className="alert__dot" />
+          <p className="alert__body">{listError}</p>
+        </div>
+      )}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {filtered.length === 0 ? (
+        {loadingBusinesses ? (
+          <div className="empty-state">
+            <p className="empty-state__title">Loading businesses…</p>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state__title">No businesses found</p>
             <p className="empty-state__desc">
@@ -407,7 +394,9 @@ export default function AdminPage() {
                     <td>
                       <div className={styles.businessCell}>
                         <span className={styles.businessName}>{b.business_name}</span>
-                        <span className="badge badge--neutral">{b.business_type}</span>
+                        <span className="badge badge--neutral">
+                          {(b.business_type_id && businessTypeNameById.get(b.business_type_id)) ?? '—'}
+                        </span>
                       </div>
                     </td>
                     <td>{b.owner_name}</td>
@@ -534,13 +523,16 @@ export default function AdminPage() {
 
               {/* Phone */}
               <div className="form-group">
-                <label className="form-label">Phone (WhatsApp preferred)</label>
+                <label className="form-label form-label--required">Phone (WhatsApp preferred)</label>
                 <input
-                  className="form-input"
+                  className={`form-input${createErrors.phone ? ' form-input--error' : ''}`}
                   placeholder="+91 98765 43210"
                   value={createForm.phone}
                   onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))}
                 />
+                {createErrors.phone && (
+                  <span className="form-error">{createErrors.phone}</span>
+                )}
               </div>
 
               {/* Password */}
@@ -583,11 +575,18 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {createSubmitError && (
+              <div className="alert alert--danger" style={{ marginTop: 12 }}>
+                <div className="alert__dot" />
+                <p className="alert__body">{createSubmitError}</p>
+              </div>
+            )}
+
             <div className={styles.modalFooter}>
-              <button className="btn btn--ghost" onClick={closeModal}>Cancel</button>
-              <button className="btn btn--primary" onClick={handleCreateSubmit}>
+              <button className="btn btn--ghost" onClick={closeModal} disabled={createSubmitting}>Cancel</button>
+              <button className="btn btn--primary" onClick={handleCreateSubmit} disabled={createSubmitting}>
                 <Check size={15} />
-                Create Business
+                {createSubmitting ? 'Creating…' : 'Create Business'}
               </button>
             </div>
           </div>

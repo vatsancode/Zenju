@@ -117,10 +117,11 @@ export default function OnboardingPage() {
         <button
           type="submit"
           className="btn btn--primary btn--full btn--lg"
-          disabled={!businessName || !category || isLoading}
+          disabled
         >
-          {isLoading ? <span className="spinner" /> : 'Continue to Dashboard'}
+          Continue to Dashboard
         </button>
+        <span className="badge badge--neutral badge--centered">Coming soon</span>
       </form>
 
     </>

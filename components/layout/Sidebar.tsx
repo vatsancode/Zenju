@@ -60,7 +60,10 @@ export default function Sidebar() {
         </Link>
         <button
           className={`nav-item ${styles.logoutBtn}`}
-          onClick={() => router.push('/api/auth/force-logout')}
+          onClick={async () => {
+            await fetch('/api/auth/force-logout', { method: 'POST' })
+            router.push('/auth/login')
+          }}
         >
           <div className="nav-item__bar"></div>
           <span>Logout</span>

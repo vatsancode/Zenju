@@ -6,7 +6,6 @@ import styles from './reset-password.module.css'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
-  const [isLoading, setIsLoading] = useState(false)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -50,10 +49,11 @@ export default function ResetPasswordPage() {
         <button
           type="submit"
           className="btn btn--primary btn--full btn--lg"
-          disabled={isLoading}
+          disabled
         >
-          {isLoading ? <span className="spinner" /> : 'Update Password'}
+          Update Password
         </button>
+        <span className="badge badge--neutral badge--centered">Coming soon</span>
       </form>
     </>
   )

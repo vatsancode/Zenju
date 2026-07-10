@@ -128,7 +128,7 @@ export default function SignupPage() {
               readOnly={!emailEditable}
             />
             {emailEditable && (
-              <button type="submit" className={`btn btn--primary btn--sm ${styles.verifyBtn}`}>
+              <button type="submit" className={`btn btn--primary btn--sm ${styles.verifyBtn}`} disabled>
                 Verify
               </button>
             )}
@@ -152,6 +152,7 @@ export default function SignupPage() {
               </button>
             )}
           </div>
+          <span className="badge badge--neutral badge--centered">Coming soon</span>
         </div>
 
         {/* OTP — 6 individual digit boxes */}
@@ -172,7 +173,7 @@ export default function SignupPage() {
                   onKeyDown={(e) => handleOtpKeyDown(i, e)}
                   onPaste={handleOtpPaste}
                   onFocus={(e) => e.target.select()}
-                  disabled={isLoading}
+                  disabled
                   autoComplete={i === 0 ? 'one-time-code' : 'off'}
                   autoFocus={i === 0}
                   aria-label={`Digit ${i + 1}`}
@@ -185,6 +186,7 @@ export default function SignupPage() {
                 Verifying…
               </p>
             )}
+            <span className="badge badge--neutral badge--centered">Coming soon</span>
           </div>
         )}
 
@@ -224,10 +226,11 @@ export default function SignupPage() {
             <button
               type="submit"
               className="btn btn--primary btn--full btn--lg"
-              disabled={isLoading || passwordMismatch || !password || !confirmPassword}
+              disabled
             >
-              {isLoading ? <span className="spinner"></span> : 'Create Account'}
+              Create Account
             </button>
+            <span className="badge badge--neutral badge--centered">Coming soon</span>
           </>
         )}
       </form>
@@ -237,8 +240,7 @@ export default function SignupPage() {
       <button
         type="button"
         className="btn btn--ghost btn--full"
-        onClick={() => { /* TODO: wire up Google OAuth */ }}
-        disabled={isLoading}
+        disabled
       >
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4" />
@@ -248,6 +250,7 @@ export default function SignupPage() {
         </svg>
         Continue with Google
       </button>
+      <span className="badge badge--neutral badge--centered">Coming soon</span>
 
       <p className={styles.bottomLink}>
         Already have an account?{' '}

@@ -56,6 +56,14 @@ plus `types/database.ts` and any migration/SQL files.
 12. Multi-write operations that must succeed together (sale + sale_items +
     stock movements) SHOULD go through a single RPC/transaction, not separate
     client calls.
+13. **`businesses.subscription_plan` comparisons must be centralized**, not
+    scattered raw string checks (`if (plan === 'free')`) across many files.
+    Route all plan-gating logic through one shared helper/module. Reason:
+    `subscription_plan` is still a TEXT enum (`'free'`/`'pro'`) today but is
+    expected to become an FK (`subscription_plan_id` → a `subscription_plans`
+    table) once real billing/plans exist — like `business_type_id` already is
+    for business types. Centralizing now means that swap is a one-file change
+    instead of a grep-and-replace.
 
 ## Step 3 — Report
 

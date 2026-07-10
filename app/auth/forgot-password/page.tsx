@@ -8,7 +8,6 @@ import styles from './forgot-password.module.css'
 export default function ForgotPasswordPage() {
   const router = useRouter()
   const [state, setState] = useState<'form' | 'sent'>('form')
-  const [isLoading, setIsLoading] = useState(false)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -83,10 +82,11 @@ export default function ForgotPasswordPage() {
         <button
           type="submit"
           className="btn btn--primary btn--full btn--lg"
-          disabled={isLoading}
+          disabled
         >
-          {isLoading ? <span className="spinner" /> : 'Send Reset Link'}
+          Send Reset Link
         </button>
+        <span className="badge badge--neutral badge--centered">Coming soon</span>
       </form>
 
       <Link href="/auth/login" className={`text-secondary ${styles.backLink}`}>

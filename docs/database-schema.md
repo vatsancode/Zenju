@@ -102,17 +102,22 @@ The bridge between Supabase Auth and business operations. One row per user per b
 | `role` | TEXT | `'owner'` / `'manager'` / `'cashier'` / `'viewer'` |
 | `branch_id` | UUID | NULL = all branches, set = this branch only |
 | `display_name` | TEXT | Name shown in POS and reports |
+| `phone` | TEXT | Nullable — contact number for this person at this business (e.g. WhatsApp) |
 | `is_active` | BOOLEAN | Disable without deleting |
 | `created_at` | TIMESTAMP | Auto-set |
 | `updated_at` | TIMESTAMP | Auto-updated |
 
 **Unique constraint:** `(business_id, auth_user_id)` — one role per user per business.
 
+**Check constraint:** `role != 'owner' OR phone IS NOT NULL` — owners must have a phone on file; other roles may leave it blank.
+
 **Why this design:**
 - One Supabase auth account can work at multiple businesses (e.g. freelance cashier)
 - Role is per-business, not global
 - `branch_id` scoping enables "this cashier only works at Branch A"
 - `businesses.owner_user_id` identifies who owns the billing/subscription; `business_users` handles operational access
+
+**RLS note:** every tenant-owned table's policy answers "which businesses does this user belong to?" by looking into `business_users`. That lookup goes through the `get_my_business_ids()` SQL function (a `SECURITY DEFINER` function that bypasses RLS) rather than a raw subquery — a raw subquery against `business_users` re-triggers `business_users`' own policy, causing infinite recursion (Postgres error 42P17). See `005_fix_business_users_rls_recursion.sql`.
 
 ---
 

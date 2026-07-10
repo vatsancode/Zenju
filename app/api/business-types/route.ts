@@ -7,6 +7,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Service client bypasses RLS on purpose — this is the cross-tenant admin
+  // view, gated by isCurrentUserAdmin() above instead of per-business RLS.
   const supabase = await createServiceClient()
   const { data, error } = await supabase
     .from('business_types')
@@ -36,6 +38,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   }
 
+  // Service client bypasses RLS on purpose — this is the cross-tenant admin
+  // action (managing business types globally), gated by isCurrentUserAdmin()
+  // above instead of per-business RLS.
   const supabase = await createServiceClient()
 
   // Case-insensitive dedupe check — "Cafe" and "cafe" count as the same type.
