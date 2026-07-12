@@ -3,15 +3,33 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import styles from './forgot-password.module.css'
 
 export default function ForgotPasswordPage() {
   const router = useRouter()
   const [state, setState] = useState<'form' | 'sent'>('form')
+  const [email, setEmail] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // TODO: wire up Supabase auth — send password reset email
+    setError(null)
+    setIsLoading(true)
+
+    const supabase = createClient()
+    const redirectTo = `${window.location.origin}/auth/callback?next=/auth/reset-password`
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+
+    if (resetError) {
+      setError('Something went wrong. Please try again.')
+      setIsLoading(false)
+      return
+    }
+
+    setState('sent')
   }
 
   if (state === 'sent') {
@@ -65,6 +83,13 @@ export default function ForgotPasswordPage() {
         Enter your email and we&apos;ll send you a reset link.
       </p>
 
+      {error && (
+        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+          <div className="alert__dot" />
+          <p className="alert__body">{error}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className={styles.formFields}>
         <div className="form-group">
           <label className="form-label" htmlFor="reset-email">
@@ -76,17 +101,19 @@ export default function ForgotPasswordPage() {
             type="email"
             placeholder="you@example.com"
             autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
           />
         </div>
 
         <button
           type="submit"
           className="btn btn--primary btn--full btn--lg"
-          disabled
+          disabled={isLoading}
         >
-          Send Reset Link
+          {isLoading ? <span className="spinner" /> : 'Send Reset Link'}
         </button>
-        <span className="badge badge--neutral badge--centered">Coming soon</span>
       </form>
 
       <Link href="/auth/login" className={`text-secondary ${styles.backLink}`}>
