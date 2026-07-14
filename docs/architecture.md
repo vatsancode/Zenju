@@ -56,7 +56,7 @@ scattered across components.
 
 ## Current status (update this section as it changes)
 
-- Auth pages: login wired to real Supabase Auth (email/password sign-in + admin_users/business_users role routing); signup, forgot-password, reset-password, and onboarding still stubbed with TODOs
+- Auth pages: login, forgot-password, and reset-password wired to real Supabase Auth (email/password sign-in + admin_users/business_users role routing, password reset email flow); signup and onboarding still stubbed with TODOs
 - Dashboard pages: UI built, running on `lib/mock-data.ts` — not yet wired to real tables
-- Database: migrations `001_initial_schema.sql`, `002_business_types.sql`, `003_admin_users.sql` applied, 26 tables + 1 view live in Supabase
-- `lib/services/`: `auth.ts` added (login role routing) — everything else still empty, added domain by domain as pages are wired up
+- Database: migrations `001`–`007` applied (business types, admin users, business_users phone, RLS recursion fix, create_business_with_owner RPC, business status/suspend) — see `supabase/migrations/` for the full list
+- `lib/services/`: `auth.ts` (login role routing) and `businesses.ts` (admin business CRUD, password reset, status) added — everything else still empty, added domain by domain as pages are wired up

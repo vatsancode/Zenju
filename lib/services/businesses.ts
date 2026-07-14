@@ -1,4 +1,7 @@
 import type { createServiceClient } from '@/lib/supabase/server'
+import type { BusinessStatus } from '@/types/database'
+
+export type { BusinessStatus }
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>
 
@@ -18,13 +21,14 @@ export interface BusinessSummary {
   phone: string
   business_type_id: string | null
   plan: string
+  status: BusinessStatus
   created_at: string
 }
 
 export async function listBusinesses(supabase: ServiceClient): Promise<ServiceResult<BusinessSummary[]>> {
   const { data: businesses, error: businessesError } = await supabase
     .from('businesses')
-    .select('id, name, business_type_id, subscription_plan, owner_user_id, created_at')
+    .select('id, name, business_type_id, subscription_plan, owner_user_id, status, created_at')
     .order('created_at', { ascending: false })
 
   if (businessesError) {
@@ -74,6 +78,7 @@ export async function listBusinesses(supabase: ServiceClient): Promise<ServiceRe
         phone: owner?.phone ?? '',
         business_type_id: b.business_type_id,
         plan: b.subscription_plan,
+        status: b.status,
         created_at: b.created_at,
       }
     }),
@@ -147,6 +152,7 @@ export async function createBusiness(
       phone,
       business_type_id: business.business_type_id,
       plan: business.subscription_plan,
+      status: business.status,
       created_at: business.created_at,
     },
   }
@@ -180,6 +186,30 @@ export async function resetBusinessOwnerPassword(
   if (updateError) {
     console.error('[businesses:reset-password] updateUserById failed', businessId, updateError)
     return { ok: false, error: 'Could not reset the password. Please try again.', status: 500 }
+  }
+
+  return { ok: true, data: null }
+}
+
+export async function setBusinessStatus(
+  supabase: ServiceClient,
+  businessId: string,
+  status: BusinessStatus
+): Promise<ServiceResult<null>> {
+  const { data: business, error: updateError } = await supabase
+    .from('businesses')
+    .update({ status })
+    .eq('id', businessId)
+    .select('id')
+    .maybeSingle()
+
+  if (updateError) {
+    console.error('[businesses:set-status] update failed', businessId, updateError)
+    return { ok: false, error: 'Could not update the business status. Please try again.', status: 500 }
+  }
+
+  if (!business) {
+    return { ok: false, error: 'Business not found', status: 404 }
   }
 
   return { ok: true, data: null }

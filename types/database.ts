@@ -7,6 +7,7 @@
 // ─── Enums (CHECK constraints in the database) ─────────────
 
 export type SubscriptionPlan = 'free' | 'pro'
+export type BusinessStatus = 'active' | 'suspended'
 export type UserRole = 'owner' | 'manager' | 'cashier' | 'viewer'
 export type InventoryAvailability = 'active' | 'inactive'
 export type CatalogueItemType = 'linked' | 'bundle' | 'independent'
@@ -26,6 +27,7 @@ export interface Business {
   owner_user_id: string
   business_type_id: string | null
   subscription_plan: SubscriptionPlan
+  status: BusinessStatus
   currency: string
   created_at: string
   updated_at: string

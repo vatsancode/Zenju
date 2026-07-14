@@ -30,6 +30,7 @@ The top-level tenant. Every other table traces back to this. One row per registe
 | `owner_user_id` | UUID | FK → auth.users.id — the account owner |
 | `business_type_id` | UUID | FK → business_types.id — nullable |
 | `subscription_plan` | TEXT | `'free'` / `'pro'` |
+| `status` | TEXT | `'active'` / `'suspended'` — set by a platform admin; suspended blocks login and all RLS access for every business member (`get_my_business_ids()`) |
 | `currency` | TEXT | DEFAULT `'INR'` — business-level currency |
 | `created_at` | TIMESTAMP | Auto-set |
 | `updated_at` | TIMESTAMP | Auto-updated |
@@ -118,6 +119,10 @@ The bridge between Supabase Auth and business operations. One row per user per b
 - `businesses.owner_user_id` identifies who owns the billing/subscription; `business_users` handles operational access
 
 **RLS note:** every tenant-owned table's policy answers "which businesses does this user belong to?" by looking into `business_users`. That lookup goes through the `get_my_business_ids()` SQL function (a `SECURITY DEFINER` function that bypasses RLS) rather than a raw subquery — a raw subquery against `business_users` re-triggers `business_users`' own policy, causing infinite recursion (Postgres error 42P17). See `005_fix_business_users_rls_recursion.sql`.
+
+`get_my_business_ids()` also requires `businesses.status = 'active'` (see `007_add_business_status.sql`), so suspending a business cuts off every member's RLS access immediately, not just new logins. `businesses` itself has two policies: the owner has full read/write via `owner_user_id = auth.uid()`, and any active member gets read-only access via `get_my_business_ids()` — needed so staff (not just the owner) can resolve their business's status at login.
+
+**Status-change trigger:** `businesses.status` can only be changed by the service role — a `BEFORE UPDATE` trigger (`prevent_business_status_change_by_owner`, see `007_add_business_status.sql`) rejects any status change attempted by a regular authenticated session. This closes a gap where the owner's own RLS policy (`owner_user_id = auth.uid()`, full read/write, no column restriction) would otherwise let a suspended owner reactivate their own account directly from the client.
 
 ---
 

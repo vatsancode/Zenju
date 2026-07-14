@@ -29,6 +29,7 @@ interface BusinessRecord {
   phone: string
   business_type_id: string | null
   plan: SubscriptionPlan
+  status: BusinessStatus
   created_at: string
 }
 
@@ -82,10 +83,8 @@ function formatDate(iso: string): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-// The DB has no status column yet (suspend/activate isn't persisted) — every
-// business fetched from the API is shown as active until that's built.
 function toBusiness(record: BusinessRecord): Business {
-  return { ...record, status: 'active' }
+  return record
 }
 
 export default function AdminPage() {
@@ -113,6 +112,10 @@ export default function AdminPage() {
   const [resetErrors, setResetErrors] = useState<Partial<Record<keyof typeof BLANK_RESET, string>>>({})
   const [resetSubmitting, setResetSubmitting] = useState(false)
   const [resetSubmitError, setResetSubmitError] = useState<string | null>(null)
+
+  // Status (suspend/activate) confirmation
+  const [statusSubmitting, setStatusSubmitting] = useState(false)
+  const [statusSubmitError, setStatusSubmitError] = useState<string | null>(null)
 
   // Business types — fetched from the real database, not hardcoded
   const [businessTypes, setBusinessTypes] = useState<BusinessTypeSummary[]>([])
@@ -210,6 +213,8 @@ export default function AdminPage() {
     setResetShowPwd(false)
     setResetSubmitting(false)
     setResetSubmitError(null)
+    setStatusSubmitting(false)
+    setStatusSubmitError(null)
   }
 
   function openResetModal(b: Business) {
@@ -303,16 +308,34 @@ export default function AdminPage() {
     }
   }
 
-  function handleStatusToggle() {
+  async function handleStatusToggle() {
     if (!targetBusiness) return
-    setBusinesses(prev =>
-      prev.map(b =>
-        b.id === targetBusiness.id
-          ? { ...b, status: b.status === 'active' ? 'suspended' : 'active' }
-          : b
+    const newStatus: BusinessStatus = targetBusiness.status === 'active' ? 'suspended' : 'active'
+
+    setStatusSubmitting(true)
+    setStatusSubmitError(null)
+
+    try {
+      const res = await fetch(`/api/businesses/${targetBusiness.id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!res.ok) {
+        const data = await res.json() as { error?: string }
+        setStatusSubmitError(data.error ?? 'Could not update the business status. Please try again.')
+        return
+      }
+
+      setBusinesses(prev =>
+        prev.map(b => (b.id === targetBusiness.id ? { ...b, status: newStatus } : b))
       )
-    )
-    closeModal()
+      closeModal()
+    } catch {
+      setStatusSubmitError('Could not update the business status. Please try again.')
+    } finally {
+      setStatusSubmitting(false)
+    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -742,17 +765,24 @@ export default function AdminPage() {
               )}
             </div>
 
+            {statusSubmitError && (
+              <div className="alert alert--danger alert--mt-3">
+                <div className="alert__dot" />
+                <p className="alert__body">{statusSubmitError}</p>
+              </div>
+            )}
+
             <div className={styles.modalFooter}>
-              <button className="btn btn--ghost" onClick={closeModal}>Cancel</button>
+              <button className="btn btn--ghost" onClick={closeModal} disabled={statusSubmitting}>Cancel</button>
               {targetBusiness.status === 'active' ? (
-                <button className="btn btn--danger" onClick={handleStatusToggle}>
+                <button className="btn btn--danger" onClick={handleStatusToggle} disabled={statusSubmitting}>
                   <Power size={15} />
-                  Suspend Account
+                  {statusSubmitting ? 'Suspending…' : 'Suspend Account'}
                 </button>
               ) : (
-                <button className="btn btn--success" onClick={handleStatusToggle}>
+                <button className="btn btn--success" onClick={handleStatusToggle} disabled={statusSubmitting}>
                   <Check size={15} />
-                  Activate Account
+                  {statusSubmitting ? 'Activating…' : 'Activate Account'}
                 </button>
               )}
             </div>
