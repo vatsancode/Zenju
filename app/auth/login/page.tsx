@@ -57,7 +57,7 @@ export default function LoginPage() {
       <p className={`text-secondary ${styles.subtext}`}>Log in to your account</p>
 
       {error && (
-        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+        <div className="alert alert--danger alert--mb-4">
           <div className="alert__dot" />
           <p className="alert__body">{error}</p>
         </div>
@@ -89,7 +89,10 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
           <div className={styles.forgotRow}>
-            <Link href="/auth/forgot-password" className={styles.forgotLink}>
+            <Link
+              href={email ? `/auth/forgot-password?email=${encodeURIComponent(email)}` : '/auth/forgot-password'}
+              className={styles.forgotLink}
+            >
               Forgot password?
             </Link>
           </div>

@@ -10,15 +10,22 @@ export async function GET() {
   // Service client bypasses RLS on purpose — this is the cross-tenant admin
   // view, gated by isCurrentUserAdmin() above instead of per-business RLS.
   const supabase = await createServiceClient()
-  const { data, error } = await supabase
-    .from('business_types')
-    .select('id, name')
-    .order('name')
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  try {
+    const { data, error } = await supabase
+      .from('business_types')
+      .select('id, name')
+      .order('name')
+
+    if (error) {
+      console.error('[business-types:list] fetch business_types failed', error)
+      return NextResponse.json({ error: 'Could not load business types. Please try again.' }, { status: 500 })
+    }
+    return NextResponse.json({ data })
+  } catch (err) {
+    console.error('[business-types:list] unexpected error', err)
+    return NextResponse.json({ error: 'Could not load business types. Please try again.' }, { status: 500 })
   }
-  return NextResponse.json({ business_types: data })
 }
 
 export async function POST(request: NextRequest) {
@@ -43,30 +50,37 @@ export async function POST(request: NextRequest) {
   // above instead of per-business RLS.
   const supabase = await createServiceClient()
 
-  // Case-insensitive dedupe check — "Cafe" and "cafe" count as the same type.
-  // The database also has a matching unique index as a backstop.
-  const { data: existing, error: existingError } = await supabase
-    .from('business_types')
-    .select('id, name')
-    .ilike('name', trimmed)
-    .maybeSingle()
+  try {
+    // Case-insensitive dedupe check — "Cafe" and "cafe" count as the same type.
+    // The database also has a matching unique index as a backstop.
+    const { data: existing, error: existingError } = await supabase
+      .from('business_types')
+      .select('id, name')
+      .ilike('name', trimmed)
+      .maybeSingle()
 
-  if (existingError) {
-    return NextResponse.json({ error: existingError.message }, { status: 500 })
+    if (existingError) {
+      console.error('[business-types:create] dedupe check failed', existingError)
+      return NextResponse.json({ error: 'Could not create business type. Please try again.' }, { status: 500 })
+    }
+
+    if (existing) {
+      return NextResponse.json({ data: existing })
+    }
+
+    const { data, error } = await supabase
+      .from('business_types')
+      .insert({ name: trimmed })
+      .select('id, name')
+      .single()
+
+    if (error) {
+      console.error('[business-types:create] insert business_types failed', error)
+      return NextResponse.json({ error: 'Could not create business type. Please try again.' }, { status: 500 })
+    }
+    return NextResponse.json({ data })
+  } catch (err) {
+    console.error('[business-types:create] unexpected error', err)
+    return NextResponse.json({ error: 'Could not create business type. Please try again.' }, { status: 500 })
   }
-
-  if (existing) {
-    return NextResponse.json({ business_type: existing })
-  }
-
-  const { data, error } = await supabase
-    .from('business_types')
-    .insert({ name: trimmed })
-    .select('id, name')
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  return NextResponse.json({ business_type: data })
 }

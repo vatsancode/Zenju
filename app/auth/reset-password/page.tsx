@@ -63,7 +63,7 @@ export default function ResetPasswordPage() {
       </p>
 
       {error && (
-        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+        <div className="alert alert--danger alert--mb-4">
           <div className="alert__dot" />
           <p className="alert__body">{error}</p>
         </div>

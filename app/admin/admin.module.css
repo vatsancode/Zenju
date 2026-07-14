@@ -122,6 +122,10 @@
   margin-bottom: var(--space-6);
 }
 
+.pageDesc {
+  margin-top: var(--space-1);
+}
+
 /* ── Stat Cards ──────────────────────────────────────────────── */
 
 .statsRow {
@@ -208,6 +212,10 @@
   overflow-x: auto;
 }
 
+.resultCount {
+  margin-top: var(--space-3);
+}
+
 .businessCell {
   display: flex;
   flex-direction: column;
@@ -284,6 +292,11 @@
   margin-top: var(--space-2);
 }
 
+/* No --space-* token matches 2px — smallest step in the scale is --space-1 (4px). */
+.resetTargetName {
+  margin-top: 2px;
+}
+
 .formStack {
   display: flex;
   flex-direction: column;
@@ -318,4 +331,10 @@
 
 .pwdToggle:hover {
   color: var(--color-text-primary);
+}
+
+/* ── Status change modal ─────────────────────────────────────── */
+
+.statusModalBody {
+  padding: var(--space-1) 0 var(--space-2);
 }

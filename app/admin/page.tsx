@@ -3,22 +3,21 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Plus, Search, KeyRound, Power, X, Eye, EyeOff, Check } from 'lucide-react'
 import SearchableSelect from '@/components/ui/SearchableSelect'
-import type { BusinessType } from '@/types/database'
+import type { BusinessType, SubscriptionPlan } from '@/types/database'
 import styles from './admin.module.css'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type BusinessStatus = 'active' | 'suspended'
-// Mirrors the DB's subscription_plan CHECK constraint ('free' | 'pro') — no separate trial/starter tier exists yet.
-type BusinessPlan = 'free' | 'pro'
 type BusinessTypeSummary = Pick<BusinessType, 'id' | 'name'>
 
 interface BusinessTypesGetResponse {
-  business_types: BusinessTypeSummary[]
+  data?: BusinessTypeSummary[]
+  error?: string
 }
 
 interface BusinessTypesPostResponse {
-  business_type?: BusinessTypeSummary
+  data?: BusinessTypeSummary
   error?: string
 }
 
@@ -29,17 +28,17 @@ interface BusinessRecord {
   email: string
   phone: string
   business_type_id: string | null
-  plan: BusinessPlan
+  plan: SubscriptionPlan
   created_at: string
 }
 
 interface BusinessesGetResponse {
-  businesses?: BusinessRecord[]
+  data?: BusinessRecord[]
   error?: string
 }
 
 interface BusinessesPostResponse {
-  business?: BusinessRecord
+  data?: BusinessRecord
   error?: string
 }
 
@@ -50,7 +49,7 @@ interface Business {
   email: string
   phone: string
   business_type_id: string | null
-  plan: BusinessPlan
+  plan: SubscriptionPlan
   status: BusinessStatus
   created_at: string
 }
@@ -112,6 +111,8 @@ export default function AdminPage() {
   const [resetForm, setResetForm] = useState({ ...BLANK_RESET })
   const [resetShowPwd, setResetShowPwd] = useState(false)
   const [resetErrors, setResetErrors] = useState<Partial<Record<keyof typeof BLANK_RESET, string>>>({})
+  const [resetSubmitting, setResetSubmitting] = useState(false)
+  const [resetSubmitError, setResetSubmitError] = useState<string | null>(null)
 
   // Business types — fetched from the real database, not hardcoded
   const [businessTypes, setBusinessTypes] = useState<BusinessTypeSummary[]>([])
@@ -119,7 +120,7 @@ export default function AdminPage() {
   useEffect(() => {
     fetch('/api/business-types')
       .then(res => res.json() as Promise<BusinessTypesGetResponse>)
-      .then(data => setBusinessTypes(data.business_types ?? []))
+      .then(data => setBusinessTypes(data.data ?? []))
       .catch(() => setCreateErrors(e => ({ ...e, business_type_id: 'Could not load business types. Refresh to try again.' })))
   }, [])
 
@@ -127,11 +128,11 @@ export default function AdminPage() {
     fetch('/api/businesses')
       .then(res => res.json() as Promise<BusinessesGetResponse>)
       .then(data => {
-        if (!data.businesses) {
+        if (!data.data) {
           setListError(data.error ?? 'Could not load businesses.')
           return
         }
-        setBusinesses(data.businesses.map(toBusiness))
+        setBusinesses(data.data.map(toBusiness))
       })
       .catch(() => setListError('Could not load businesses. Refresh to try again.'))
       .finally(() => setLoadingBusinesses(false))
@@ -148,7 +149,7 @@ export default function AdminPage() {
         body: JSON.stringify({ name }),
       })
       const data = await res.json() as BusinessTypesPostResponse
-      const businessType = data.business_type
+      const businessType = data.data
 
       if (res.ok && businessType) {
         setBusinessTypes(prev =>
@@ -207,6 +208,8 @@ export default function AdminPage() {
     setResetForm({ ...BLANK_RESET })
     setResetErrors({})
     setResetShowPwd(false)
+    setResetSubmitting(false)
+    setResetSubmitError(null)
   }
 
   function openResetModal(b: Business) {
@@ -253,12 +256,12 @@ export default function AdminPage() {
       })
       const data = await res.json() as BusinessesPostResponse
 
-      if (!res.ok || !data.business) {
+      if (!res.ok || !data.data) {
         setCreateSubmitError(data.error ?? 'Could not create business. Please try again.')
         return
       }
 
-      setBusinesses(prev => [toBusiness(data.business!), ...prev])
+      setBusinesses(prev => [toBusiness(data.data!), ...prev])
       closeModal()
     } catch {
       setCreateSubmitError('Could not create business. Please try again.')
@@ -267,14 +270,37 @@ export default function AdminPage() {
     }
   }
 
-  function handleResetSubmit() {
+  async function handleResetSubmit() {
+    if (!targetBusiness) return
+
     const errors: Partial<Record<keyof typeof BLANK_RESET, string>> = {}
     if (!resetForm.password) errors.password = 'Required'
     else if (resetForm.password.length < 8) errors.password = 'Minimum 8 characters'
     if (resetForm.confirmPassword !== resetForm.password) errors.confirmPassword = 'Passwords do not match'
 
     if (Object.keys(errors).length > 0) { setResetErrors(errors); return }
-    closeModal()
+
+    setResetSubmitting(true)
+    setResetSubmitError(null)
+
+    try {
+      const res = await fetch(`/api/businesses/${targetBusiness.id}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: resetForm.password }),
+      })
+      if (!res.ok) {
+        const data = await res.json() as { error?: string }
+        setResetSubmitError(data.error ?? 'Could not reset the password. Please try again.')
+        return
+      }
+
+      closeModal()
+    } catch {
+      setResetSubmitError('Could not reset the password. Please try again.')
+    } finally {
+      setResetSubmitting(false)
+    }
   }
 
   function handleStatusToggle() {
@@ -297,7 +323,7 @@ export default function AdminPage() {
       <div className={styles.headerRow}>
         <div>
           <h1>Businesses</h1>
-          <p className="text-secondary" style={{ marginTop: 4 }}>
+          <p className={`text-secondary ${styles.pageDesc}`}>
             Manage all business accounts on this platform.
           </p>
         </div>
@@ -352,7 +378,7 @@ export default function AdminPage() {
 
       {/* ── Table ────────────────────────────────────────────────── */}
       {listError && (
-        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+        <div className="alert alert--danger alert--mb-4">
           <div className="alert__dot" />
           <p className="alert__body">{listError}</p>
         </div>
@@ -439,7 +465,7 @@ export default function AdminPage() {
       </div>
 
       {filtered.length > 0 && (
-        <p className="text-secondary text-sm" style={{ marginTop: 12 }}>
+        <p className={`text-secondary text-sm ${styles.resultCount}`}>
           Showing {filtered.length} of {businesses.length} {businesses.length === 1 ? 'business' : 'businesses'}
         </p>
       )}
@@ -576,7 +602,7 @@ export default function AdminPage() {
             </div>
 
             {createSubmitError && (
-              <div className="alert alert--danger" style={{ marginTop: 12 }}>
+              <div className="alert alert--danger alert--mt-3">
                 <div className="alert__dot" />
                 <p className="alert__body">{createSubmitError}</p>
               </div>
@@ -612,7 +638,7 @@ export default function AdminPage() {
 
             <div className={styles.resetTarget}>
               <p className="text-secondary text-sm">Setting new password for</p>
-              <p className="font-semibold" style={{ marginTop: 2 }}>{targetBusiness.business_name}</p>
+              <p className={`font-semibold ${styles.resetTargetName}`}>{targetBusiness.business_name}</p>
               <p className="text-secondary text-sm">{targetBusiness.email}</p>
             </div>
 
@@ -655,11 +681,18 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {resetSubmitError && (
+              <div className="alert alert--danger alert--mt-3">
+                <div className="alert__dot" />
+                <p className="alert__body">{resetSubmitError}</p>
+              </div>
+            )}
+
             <div className={styles.modalFooter}>
-              <button className="btn btn--ghost" onClick={closeModal}>Cancel</button>
-              <button className="btn btn--primary" onClick={handleResetSubmit}>
+              <button className="btn btn--ghost" onClick={closeModal} disabled={resetSubmitting}>Cancel</button>
+              <button className="btn btn--primary" onClick={handleResetSubmit} disabled={resetSubmitting}>
                 <Check size={15} />
-                Update Password
+                {resetSubmitting ? 'Updating…' : 'Update Password'}
               </button>
             </div>
           </div>
@@ -685,7 +718,7 @@ export default function AdminPage() {
               </button>
             </div>
 
-            <div style={{ padding: '4px 0 8px' }}>
+            <div className={styles.statusModalBody}>
               {targetBusiness.status === 'active' ? (
                 <div className="alert alert--warning">
                   <div className="alert__dot" />

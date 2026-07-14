@@ -1,3 +1,4 @@
+import 'server-only'
 import Razorpay from 'razorpay'
 
 if (!process.env.RAZORPAY_KEY_SECRET) {

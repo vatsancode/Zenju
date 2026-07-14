@@ -436,7 +436,18 @@ export interface Database {
         Relationships: []
       }
     }
-    Functions: Record<string, never>
+    Functions: {
+      create_business_with_owner: {
+        Args: {
+          p_business_name: string
+          p_owner_auth_id: string
+          p_business_type_id: string
+          p_owner_name: string
+          p_owner_phone: string
+        }
+        Returns: Business
+      }
+    }
     Enums: Record<string, never>
   }
 }

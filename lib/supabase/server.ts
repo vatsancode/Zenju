@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import type { NextRequest, NextResponse } from 'next/server'
 import type { Database } from '@/types/database'
 
 export async function createClient() {
@@ -22,6 +23,28 @@ export async function createClient() {
           } catch {
             // setAll called from a Server Component — safe to ignore
           }
+        },
+      },
+    }
+  )
+}
+
+// For route handlers that build their own NextResponse (e.g. OAuth callback
+// redirects) — cookies must be read from the incoming request and written
+// onto that specific response, not the ambient cookies() store.
+export function createRouteHandlerClient(request: NextRequest, response: NextResponse) {
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          )
         },
       },
     }

@@ -1,15 +1,24 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import styles from './forgot-password.module.css'
 
 export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ForgotPasswordForm />
+    </Suspense>
+  )
+}
+
+function ForgotPasswordForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [state, setState] = useState<'form' | 'sent'>('form')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => searchParams.get('email') ?? '')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -84,7 +93,7 @@ export default function ForgotPasswordPage() {
       </p>
 
       {error && (
-        <div className="alert alert--danger" style={{ marginBottom: 16 }}>
+        <div className="alert alert--danger alert--mb-4">
           <div className="alert__dot" />
           <p className="alert__body">{error}</p>
         </div>
