@@ -304,6 +304,8 @@ Modifiers: `alert--info` `alert--success` `alert--warning` `alert--danger`
 ```
 Bar modifiers: `toast__bar--info` `toast__bar--success` `toast__bar--warning` `toast__bar--danger`
 
+Wrap in `.toast-wrap` to position it fixed bottom-right with a slide-up entrance — see `styles/globals.css` for the positioning rule.
+
 ### Data Table
 ```html
 <table class="data-table">

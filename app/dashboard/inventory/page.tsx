@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Pencil, Plus, X, Check, Upload, Filter, ChevronDown } from 'lucide-react'
 import { mockInventoryItems, formatINR } from '@/lib/mock-data'
 import type { InventoryItem, StockUnit } from '@/types/database'
+import type { CategoryWithCount } from '@/lib/services/categories'
+import type { UnitWithUsage } from '@/lib/services/units'
+import type { AttributeWithUsage } from '@/lib/services/attributes'
 import styles from './inventory.module.css'
 
 // ─── Form-local types ─────────────────────────────────────────────────────────
@@ -21,6 +24,11 @@ type TaxLine = {
   id: string
   name: string
   percentage: number
+}
+
+type ToastState = {
+  message: string
+  type: 'success' | 'warning' | 'danger' | 'info'
 }
 
 type NewItemForm = {
@@ -53,10 +61,6 @@ type NewItemForm = {
   description: string
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const DEFAULT_UNITS = ['KG', 'Grams', 'Litres', 'ML', 'Pieces']
-
 // ─── Custom select component ──────────────────────────────────────────────────
 
 type SelectOption = { value: string; label: string; isAction?: boolean }
@@ -66,11 +70,13 @@ function CustomSelect({
   options,
   onChange,
   placeholder = 'Select…',
+  disabled = false,
 }: {
   value: string
   options: SelectOption[]
   onChange: (value: string) => void
   placeholder?: string
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const selected = options.find(o => o.value === value && !o.isAction)
@@ -82,6 +88,7 @@ function CustomSelect({
         className={`form-select ${styles.customSelectTrigger}`}
         onClick={() => setOpen(v => !v)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
+        disabled={disabled}
       >
         <span className={selected ? '' : 'text-tertiary'}>
           {selected?.label ?? placeholder}
@@ -208,28 +215,42 @@ export default function InventoryPage() {
   // ── Form state ──────────────────────────────────────────────────────────────
   const [form, setForm] = useState<NewItemForm>(emptyForm())
 
-  // ── Attribute pool (shared, created by user — starts empty) ─────────────────
-  const [attributePool, setAttributePool] = useState<string[]>([])
+  // ── Attributes — loaded from the real Settings-managed data ──────────────────
+  const [attributes, setAttributes] = useState<AttributeWithUsage[]>([])
+  const [attributesLoading, setAttributesLoading] = useState(true)
+  const [attributesLoadError, setAttributesLoadError] = useState('')
+  const [attributeSaving, setAttributeSaving] = useState(false)
   const [addingAttr, setAddingAttr] = useState(false)
   const [newAttrInput, setNewAttrInput] = useState('')
 
-  // ── Unit management ─────────────────────────────────────────────────────────
-  const [customUnits, setCustomUnits] = useState<string[]>([])
+  // ── Units — loaded from the real Settings-managed data ───────────────────────
+  const [units, setUnits] = useState<UnitWithUsage[]>([])
+  const [unitsLoading, setUnitsLoading] = useState(true)
+  const [unitsLoadError, setUnitsLoadError] = useState('')
   const [addingUnit, setAddingUnit] = useState(false)
   const [newUnitInput, setNewUnitInput] = useState('')
-  const allUnits = [...DEFAULT_UNITS, ...customUnits]
+  const [unitSaving, setUnitSaving] = useState(false)
+  const allUnits = units.map(u => u.name)
 
-  // ── Category management ─────────────────────────────────────────────────────
-  const existingCategories = Array.from(new Set(items.map(i => i.category)))
-  const [customCategories, setCustomCategories] = useState<string[]>([])
+  // ── Categories — loaded from the real Settings-managed data ──────────────────
+  const [categories, setCategories] = useState<CategoryWithCount[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
+  const [categoriesLoadError, setCategoriesLoadError] = useState('')
   const [addingCategory, setAddingCategory] = useState(false)
   const [newCategoryInput, setNewCategoryInput] = useState('')
-  const allCategories = Array.from(new Set([...existingCategories, ...customCategories]))
+  const [categorySaving, setCategorySaving] = useState(false)
+  const rootCategories = categories.filter(c => c.parent_id === null)
+  const allCategories = rootCategories.map(c => c.name)
 
-  // ── Subcategory management ──────────────────────────────────────────────────
-  const [customSubcategories, setCustomSubcategories] = useState<string[]>([])
+  function getSubcategoriesFor(categoryName: string): CategoryWithCount[] {
+    const parent = rootCategories.find(c => c.name === categoryName)
+    return parent ? categories.filter(c => c.parent_id === parent.id) : []
+  }
+
+  // ── Subcategory management — real children of the selected category ─────────
   const [addingSubcategory, setAddingSubcategory] = useState(false)
   const [newSubcategoryInput, setNewSubcategoryInput] = useState('')
+  const [subcategorySaving, setSubcategorySaving] = useState(false)
 
   // ── Autocomplete ─────────────────────────────────────────────────────────────
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -254,6 +275,66 @@ export default function InventoryPage() {
   const newEditUnitInputRef = useRef<HTMLInputElement>(null)
   const newEditCategoryInputRef = useRef<HTMLInputElement>(null)
   const newEditSubcategoryInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Toast ────────────────────────────────────────────────────────────────────
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = useCallback((message: string, type: ToastState['type'] = 'success') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast({ message, type })
+    toastTimer.current = setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  // ── Load categories and units from the server ─────────────────────────────────
+  async function loadCategories() {
+    setCategoriesLoading(true)
+    setCategoriesLoadError('')
+    try {
+      const res = await fetch('/api/categories')
+      const body = await res.json()
+      if (!res.ok) { setCategoriesLoadError(body.error || 'Could not load categories.'); return }
+      setCategories(body.data)
+    } catch {
+      setCategoriesLoadError('Could not load categories. Please check your connection.')
+    } finally {
+      setCategoriesLoading(false)
+    }
+  }
+
+  async function loadUnits() {
+    setUnitsLoading(true)
+    setUnitsLoadError('')
+    try {
+      const res = await fetch('/api/units')
+      const body = await res.json()
+      if (!res.ok) { setUnitsLoadError(body.error || 'Could not load units.'); return }
+      setUnits(body.data)
+    } catch {
+      setUnitsLoadError('Could not load units. Please check your connection.')
+    } finally {
+      setUnitsLoading(false)
+    }
+  }
+
+  useEffect(() => { loadCategories() }, [])
+  useEffect(() => { loadUnits() }, [])
+
+  async function loadAttributes() {
+    setAttributesLoading(true)
+    setAttributesLoadError('')
+    try {
+      const res = await fetch('/api/attributes')
+      const body = await res.json()
+      if (!res.ok) { setAttributesLoadError(body.error || 'Could not load attributes.'); return }
+      setAttributes(body.data)
+    } catch {
+      setAttributesLoadError('Could not load attributes. Please check your connection.')
+    } finally {
+      setAttributesLoading(false)
+    }
+  }
+
+  useEffect(() => { loadAttributes() }, [])
 
   // ── Auto-focus: focus inline inputs after they mount ─────────────────────────
   useEffect(() => { if (addingCategory) newCategoryInputRef.current?.focus() }, [addingCategory])
@@ -280,9 +361,9 @@ export default function InventoryPage() {
   })()
 
   // Attributes not yet selected for this item
-  const availableAttributes = attributePool.filter(
-    a => !form.selected_attributes.includes(a)
-  )
+  const availableAttributes = attributes
+    .map(a => a.name)
+    .filter(a => !form.selected_attributes.includes(a))
 
   // Suggestions shown in the dropdown while the user types an attribute name
   const attrSuggestions = addingAttr
@@ -290,6 +371,18 @@ export default function InventoryPage() {
       a =>
         !newAttrInput.trim() ||
         a.toLowerCase().includes(newAttrInput.toLowerCase())
+    )
+    : []
+
+  // Same, for the Edit drawer's attribute picker
+  const editAvailableAttributes = editingItem
+    ? attributes.map(a => a.name).filter(a => !(editingItem.attributes || []).includes(a))
+    : []
+  const editAttrSuggestions = editAddingAttr
+    ? editAvailableAttributes.filter(
+      a =>
+        !editNewAttrInput.trim() ||
+        a.toLowerCase().includes(editNewAttrInput.toLowerCase())
     )
     : []
 
@@ -371,15 +464,65 @@ export default function InventoryPage() {
     }))
   }
 
-  function handleCreateAttribute(name: string) {
+  // Looks up an existing attribute by name (case-insensitive) or creates it
+  // for real via the API — shared by both the Add and Edit drawer pickers,
+  // since "type a name, get back the matching or newly-created attribute"
+  // is the same operation either way.
+  async function resolveOrCreateAttribute(name: string): Promise<AttributeWithUsage | null> {
     const trimmed = name.trim()
-    if (!trimmed) return
-    if (!attributePool.includes(trimmed)) {
-      setAttributePool(prev => [...prev, trimmed])
+    if (!trimmed) return null
+
+    const existing = attributes.find(a => a.name.toLowerCase() === trimmed.toLowerCase())
+    if (existing) return existing
+
+    if (attributeSaving) return null
+    setAttributeSaving(true)
+    try {
+      const res = await fetch('/api/attributes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setAttributesLoadError(body.error || 'Could not create attribute.')
+        return null
+      }
+      const created: AttributeWithUsage = { ...body.data, in_use: false }
+      setAttributes(prev => [...prev, created])
+      showToast(`"${created.name}" attribute created`)
+      return created
+    } catch {
+      setAttributesLoadError('Could not create attribute. Please check your connection.')
+      return null
+    } finally {
+      setAttributeSaving(false)
     }
-    addSelectedAttribute(trimmed)
+  }
+
+  async function handleCreateAttribute(name: string) {
+    const attr = await resolveOrCreateAttribute(name)
+    if (!attr) return
+    addSelectedAttribute(attr.name)
     setNewAttrInput('')
     setAddingAttr(false)
+  }
+
+  function addEditAttribute(name: string) {
+    setEditingItem(prev => {
+      if (!prev) return null
+      if ((prev.attributes || []).includes(name)) return prev
+      return { ...prev, attributes: [...(prev.attributes || []), name] }
+    })
+    setEditVariants(prev => prev.map(v => ({ ...v, attributes: [...v.attributes, ''] })))
+  }
+
+  async function handleCreateEditAttribute(name: string) {
+    const attr = await resolveOrCreateAttribute(name)
+    if (!attr) return
+    addEditAttribute(attr.name)
+    setEditNewAttrInput('')
+    setEditAddingAttr(false)
   }
 
   // ── Other form handlers ───────────────────────────────────────────────────────
@@ -398,57 +541,126 @@ export default function InventoryPage() {
     setShowSuggestions(false)
   }
 
-  function handleAddUnit() {
-    const unit = newUnitInput.trim()
-    if (unit && !allUnits.includes(unit)) {
-      setCustomUnits(prev => [...prev, unit])
+  async function createUnitRemote(name: string): Promise<UnitWithUsage | null> {
+    if (unitSaving) return null
+    setUnitSaving(true)
+    try {
+      const res = await fetch('/api/units', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Quick-created here with no decimals toggle in this compact UI —
+        // defaults to allowed, since most stock units (KG, Litres) are
+        // fractional in practice; adjustable later in Settings.
+        body: JSON.stringify({ name, allows_decimal: true }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setUnitsLoadError(body.error || 'Could not create unit.')
+        return null
+      }
+      const created: UnitWithUsage = { ...body.data, in_use: false }
+      setUnits(prev => [...prev, created])
+      showToast(`"${created.name}" unit created`)
+      return created
+    } catch {
+      setUnitsLoadError('Could not create unit. Please check your connection.')
+      return null
+    } finally {
+      setUnitSaving(false)
     }
-    if (unit) setForm(prev => ({ ...prev, unit }))
+  }
+
+  async function createCategoryRemote(name: string, parentId: string | null): Promise<CategoryWithCount | null> {
+    const setSaving = parentId === null ? setCategorySaving : setSubcategorySaving
+    if (parentId === null ? categorySaving : subcategorySaving) return null
+    setSaving(true)
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parent_id: parentId }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setCategoriesLoadError(body.error || 'Could not create category.')
+        return null
+      }
+      const created: CategoryWithCount = { ...body.data, item_count: 0 }
+      setCategories(prev => [...prev, created])
+      showToast(`"${created.name}" ${parentId === null ? 'category' : 'subcategory'} created`)
+      return created
+    } catch {
+      setCategoriesLoadError('Could not create category. Please check your connection.')
+      return null
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleAddUnit() {
+    const name = newUnitInput.trim()
+    if (!name) { setAddingUnit(false); return }
+    const created = await createUnitRemote(name)
+    if (!created) return
+    setForm(prev => ({ ...prev, unit: created.name }))
     setAddingUnit(false)
     setNewUnitInput('')
   }
 
-  function handleAddCategory() {
-    const cat = newCategoryInput.trim()
-    if (cat && !allCategories.includes(cat)) {
-      setCustomCategories(prev => [...prev, cat])
-    }
-    if (cat) setForm(prev => ({ ...prev, category: cat }))
+  async function handleAddCategory() {
+    const name = newCategoryInput.trim()
+    if (!name) { setAddingCategory(false); return }
+    const created = await createCategoryRemote(name, null)
+    if (!created) return
+    // A new parent category invalidates whatever subcategory was picked —
+    // it belonged to the previous category, not this one.
+    setForm(prev => ({ ...prev, category: created.name, subcategory: '' }))
     setAddingCategory(false)
     setNewCategoryInput('')
   }
 
-  function handleAddSubcategory() {
-    const sub = newSubcategoryInput.trim()
-    if (sub && !customSubcategories.includes(sub)) {
-      setCustomSubcategories(prev => [...prev, sub])
-    }
-    if (sub) setForm(prev => ({ ...prev, subcategory: sub }))
+  async function handleAddSubcategory() {
+    const name = newSubcategoryInput.trim()
+    if (!name) { setAddingSubcategory(false); return }
+    const parent = rootCategories.find(c => c.name === form.category)
+    if (!parent) return
+    const created = await createCategoryRemote(name, parent.id)
+    if (!created) return
+    setForm(prev => ({ ...prev, subcategory: created.name }))
     setAddingSubcategory(false)
     setNewSubcategoryInput('')
   }
 
   // ── Edit-drawer "+ Create new" handlers ─────────────────────────────────────
-  function handleAddEditUnit() {
-    const unit = newEditUnitInput.trim()
-    if (unit && !allUnits.includes(unit)) setCustomUnits(prev => [...prev, unit])
-    if (unit) setEditingItem(prev => prev ? { ...prev, unit: unit as StockUnit } : null)
+  async function handleAddEditUnit() {
+    const name = newEditUnitInput.trim()
+    if (!name) { setAddingEditUnit(false); return }
+    const created = await createUnitRemote(name)
+    if (!created) return
+    setEditingItem(prev => prev ? { ...prev, unit: created.name as StockUnit } : null)
     setAddingEditUnit(false)
     setNewEditUnitInput('')
   }
 
-  function handleAddEditCategory() {
-    const cat = newEditCategoryInput.trim()
-    if (cat && !allCategories.includes(cat)) setCustomCategories(prev => [...prev, cat])
-    if (cat) setEditingItem(prev => prev ? { ...prev, category: cat } : null)
+  async function handleAddEditCategory() {
+    const name = newEditCategoryInput.trim()
+    if (!name) { setAddingEditCategory(false); return }
+    const created = await createCategoryRemote(name, null)
+    if (!created) return
+    setEditingItem(prev => prev ? { ...prev, category: created.name } : null)
+    setEditSubcategory('')
     setAddingEditCategory(false)
     setNewEditCategoryInput('')
   }
 
-  function handleAddEditSubcategory() {
-    const sub = newEditSubcategoryInput.trim()
-    if (sub && !customSubcategories.includes(sub)) setCustomSubcategories(prev => [...prev, sub])
-    if (sub) setEditSubcategory(sub)
+  async function handleAddEditSubcategory() {
+    const name = newEditSubcategoryInput.trim()
+    if (!name || !editingItem) { setAddingEditSubcategory(false); return }
+    const parent = rootCategories.find(c => c.name === editingItem.category)
+    if (!parent) return
+    const created = await createCategoryRemote(name, parent.id)
+    if (!created) return
+    setEditSubcategory(created.name)
     setAddingEditSubcategory(false)
     setNewEditSubcategoryInput('')
   }
@@ -1028,8 +1240,9 @@ export default function InventoryPage() {
                               setNewAttrInput('')
                             }
                           }}
+                          disabled={attributeSaving}
                         />
-                        {/* Pool suggestions dropdown */}
+                        {/* Suggestions from the business-wide attribute list */}
                         {attrSuggestions.length > 0 && (
                           <div className={styles.attrSuggestions}>
                             {attrSuggestions.map(attr => (
@@ -1054,8 +1267,9 @@ export default function InventoryPage() {
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
                         title="Add attribute"
                         onClick={() => handleCreateAttribute(newAttrInput)}
+                        disabled={attributeSaving}
                       >
-                        <Check size={15} />
+                        {attributeSaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
                       <button
                         type="button"
@@ -1065,6 +1279,7 @@ export default function InventoryPage() {
                           setAddingAttr(false)
                           setNewAttrInput('')
                         }}
+                        disabled={attributeSaving}
                       >
                         <X size={15} />
                       </button>
@@ -1074,9 +1289,17 @@ export default function InventoryPage() {
                       type="button"
                       className={styles.addAttrBtn}
                       onClick={() => setAddingAttr(true)}
+                      disabled={attributesLoading}
                     >
                       + Add attribute
                     </button>
+                  )}
+
+                  {attributesLoadError && (
+                    <div className={styles.errorMsg}>
+                      {attributesLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadAttributes}>Retry</button>
+                    </div>
                   )}
 
                   <span className="form-hint">
@@ -1090,6 +1313,8 @@ export default function InventoryPage() {
                   {!addingUnit ? (
                     <CustomSelect
                       value={form.unit}
+                      disabled={unitsLoading}
+                      placeholder={unitsLoading ? 'Loading units…' : 'Select unit'}
                       options={[
                         ...allUnits.map(u => ({ value: u, label: u })),
                         { value: '__new__', label: '+ Create new unit', isAction: true },
@@ -1114,23 +1339,32 @@ export default function InventoryPage() {
                           if (e.key === 'Enter') handleAddUnit()
                           if (e.key === 'Escape') setAddingUnit(false)
                         }}
+                        disabled={unitSaving}
                       />
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
                         title="Confirm"
                         onClick={handleAddUnit}
+                        disabled={unitSaving}
                       >
-                        <Check size={15} />
+                        {unitSaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
                         title="Cancel"
                         onClick={() => setAddingUnit(false)}
+                        disabled={unitSaving}
                       >
                         <X size={15} />
                       </button>
+                    </div>
+                  )}
+                  {unitsLoadError && (
+                    <div className={styles.errorMsg}>
+                      {unitsLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadUnits}>Retry</button>
                     </div>
                   )}
                 </div>
@@ -1195,7 +1429,8 @@ export default function InventoryPage() {
                   {!addingCategory ? (
                     <CustomSelect
                       value={form.category}
-                      placeholder="Select category"
+                      disabled={categoriesLoading}
+                      placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
                       options={[
                         ...allCategories.map(c => ({ value: c, label: c })),
                         { value: '__new__', label: '+ Create new category', isAction: true },
@@ -1204,7 +1439,9 @@ export default function InventoryPage() {
                         if (v === '__new__') {
                           setAddingCategory(true)
                         } else {
-                          setForm(prev => ({ ...prev, category: v }))
+                          // Picking a different parent invalidates whatever
+                          // subcategory was selected — it belonged to the old one.
+                          setForm(prev => ({ ...prev, category: v, subcategory: '' }))
                         }
                       }}
                     />
@@ -1220,23 +1457,32 @@ export default function InventoryPage() {
                           if (e.key === 'Enter') handleAddCategory()
                           if (e.key === 'Escape') setAddingCategory(false)
                         }}
+                        disabled={categorySaving}
                       />
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
                         title="Confirm"
                         onClick={handleAddCategory}
+                        disabled={categorySaving}
                       >
-                        <Check size={15} />
+                        {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
                         title="Cancel"
                         onClick={() => setAddingCategory(false)}
+                        disabled={categorySaving}
                       >
                         <X size={15} />
                       </button>
+                    </div>
+                  )}
+                  {categoriesLoadError && (
+                    <div className={styles.errorMsg}>
+                      {categoriesLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadCategories}>Retry</button>
                     </div>
                   )}
                 </div>
@@ -1249,12 +1495,17 @@ export default function InventoryPage() {
                   {!addingSubcategory ? (
                     <CustomSelect
                       value={form.subcategory}
-                      placeholder="None"
-                      options={[
-                        { value: '', label: 'None' },
-                        ...customSubcategories.map(s => ({ value: s, label: s })),
-                        { value: '__new__', label: '+ Create new subcategory', isAction: true },
-                      ]}
+                      placeholder={form.category ? 'None' : 'Select a category first'}
+                      disabled={!form.category}
+                      options={
+                        form.category
+                          ? [
+                              { value: '', label: 'None' },
+                              ...getSubcategoriesFor(form.category).map(s => ({ value: s.name, label: s.name })),
+                              { value: '__new__', label: '+ Create new subcategory', isAction: true },
+                            ]
+                          : []
+                      }
                       onChange={v => {
                         if (v === '__new__') {
                           setAddingSubcategory(true)
@@ -1275,20 +1526,23 @@ export default function InventoryPage() {
                           if (e.key === 'Enter') handleAddSubcategory()
                           if (e.key === 'Escape') setAddingSubcategory(false)
                         }}
+                        disabled={subcategorySaving}
                       />
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
                         title="Confirm"
                         onClick={handleAddSubcategory}
+                        disabled={subcategorySaving}
                       >
-                        <Check size={15} />
+                        {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
                         title="Cancel"
                         onClick={() => setAddingSubcategory(false)}
+                        disabled={subcategorySaving}
                       >
                         <X size={15} />
                       </button>
@@ -1528,38 +1782,44 @@ export default function InventoryPage() {
                           value={editNewAttrInput}
                           onChange={e => setEditNewAttrInput(e.target.value)}
                           onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              const trimmed = editNewAttrInput.trim()
-                              if (trimmed) {
-                                setEditingItem(prev => prev ? { ...prev, attributes: [...(prev.attributes || []), trimmed] } : null)
-                                setEditVariants(prev => prev.map(v => ({ ...v, attributes: [...v.attributes, ''] })))
-                              }
-                              setEditNewAttrInput('')
-                              setEditAddingAttr(false)
-                            }
+                            if (e.key === 'Enter') handleCreateEditAttribute(editNewAttrInput)
                             if (e.key === 'Escape') { setEditAddingAttr(false); setEditNewAttrInput('') }
                           }}
+                          disabled={attributeSaving}
                         />
+                        {/* Suggestions from the business-wide attribute list */}
+                        {editAttrSuggestions.length > 0 && (
+                          <div className={styles.attrSuggestions}>
+                            {editAttrSuggestions.map(attr => (
+                              <button
+                                key={attr}
+                                type="button"
+                                className={styles.attrSuggestionItem}
+                                onMouseDown={() => {
+                                  addEditAttribute(attr)
+                                  setEditNewAttrInput('')
+                                  setEditAddingAttr(false)
+                                }}
+                              >
+                                {attr}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
-                        onClick={() => {
-                          const trimmed = editNewAttrInput.trim()
-                          if (trimmed) {
-                            setEditingItem(prev => prev ? { ...prev, attributes: [...(prev.attributes || []), trimmed] } : null)
-                            setEditVariants(prev => prev.map(v => ({ ...v, attributes: [...v.attributes, ''] })))
-                          }
-                          setEditNewAttrInput('')
-                          setEditAddingAttr(false)
-                        }}
+                        onClick={() => handleCreateEditAttribute(editNewAttrInput)}
+                        disabled={attributeSaving}
                       >
-                        <Check size={15} />
+                        {attributeSaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
                         onClick={() => { setEditAddingAttr(false); setEditNewAttrInput('') }}
+                        disabled={attributeSaving}
                       >
                         <X size={15} />
                       </button>
@@ -1569,9 +1829,16 @@ export default function InventoryPage() {
                       type="button"
                       className={styles.addAttrBtn}
                       onClick={() => setEditAddingAttr(true)}
+                      disabled={attributesLoading}
                     >
                       + Add attribute
                     </button>
+                  )}
+                  {attributesLoadError && (
+                    <div className={styles.errorMsg}>
+                      {attributesLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadAttributes}>Retry</button>
+                    </div>
                   )}
                   <span className="form-hint">
                     Attributes define what varies between variants (e.g. Size, Color).
@@ -1584,8 +1851,13 @@ export default function InventoryPage() {
                   {!addingEditUnit ? (
                     <CustomSelect
                       value={editingItem.unit}
+                      disabled={unitsLoading}
+                      placeholder={unitsLoading ? 'Loading units…' : 'Select unit'}
                       options={[
                         ...allUnits.map(u => ({ value: u, label: u })),
+                        ...(!allUnits.includes(editingItem.unit) && editingItem.unit
+                          ? [{ value: editingItem.unit, label: editingItem.unit }]
+                          : []),
                         { value: '__new__', label: '+ Create new unit', isAction: true },
                       ]}
                       onChange={v => {
@@ -1605,13 +1877,20 @@ export default function InventoryPage() {
                           if (e.key === 'Enter') handleAddEditUnit()
                           if (e.key === 'Escape') setAddingEditUnit(false)
                         }}
+                        disabled={unitSaving}
                       />
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditUnit}>
-                        <Check size={15} />
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditUnit} disabled={unitSaving}>
+                        {unitSaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditUnit(false)}>
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditUnit(false)} disabled={unitSaving}>
                         <X size={15} />
                       </button>
+                    </div>
+                  )}
+                  {unitsLoadError && (
+                    <div className={styles.errorMsg}>
+                      {unitsLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadUnits}>Retry</button>
                     </div>
                   )}
                 </div>
@@ -1625,7 +1904,8 @@ export default function InventoryPage() {
                   {!addingEditCategory ? (
                     <CustomSelect
                       value={editingItem.category}
-                      placeholder="Select category"
+                      disabled={categoriesLoading}
+                      placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
                       options={[
                         ...allCategories.map(c => ({ value: c, label: c })),
                         ...(!allCategories.includes(editingItem.category) && editingItem.category
@@ -1634,8 +1914,14 @@ export default function InventoryPage() {
                         { value: '__new__', label: '+ Create new category', isAction: true },
                       ]}
                       onChange={v => {
-                        if (v === '__new__') setAddingEditCategory(true)
-                        else setEditingItem(prev => prev ? { ...prev, category: v } : null)
+                        if (v === '__new__') {
+                          setAddingEditCategory(true)
+                        } else {
+                          setEditingItem(prev => prev ? { ...prev, category: v } : null)
+                          // Picking a different parent invalidates whatever
+                          // subcategory was selected — it belonged to the old one.
+                          setEditSubcategory('')
+                        }
                       }}
                     />
                   ) : (
@@ -1650,13 +1936,20 @@ export default function InventoryPage() {
                           if (e.key === 'Enter') handleAddEditCategory()
                           if (e.key === 'Escape') setAddingEditCategory(false)
                         }}
+                        disabled={categorySaving}
                       />
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditCategory}>
-                        <Check size={15} />
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditCategory} disabled={categorySaving}>
+                        {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditCategory(false)}>
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditCategory(false)} disabled={categorySaving}>
                         <X size={15} />
                       </button>
+                    </div>
+                  )}
+                  {categoriesLoadError && (
+                    <div className={styles.errorMsg}>
+                      {categoriesLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadCategories}>Retry</button>
                     </div>
                   )}
                 </div>
@@ -1669,12 +1962,17 @@ export default function InventoryPage() {
                   {!addingEditSubcategory ? (
                     <CustomSelect
                       value={editSubcategory}
-                      placeholder="None"
-                      options={[
-                        { value: '', label: 'None' },
-                        ...customSubcategories.map(s => ({ value: s, label: s })),
-                        { value: '__new__', label: '+ Create new subcategory', isAction: true },
-                      ]}
+                      placeholder={editingItem.category ? 'None' : 'Select a category first'}
+                      disabled={!editingItem.category}
+                      options={
+                        editingItem.category
+                          ? [
+                              { value: '', label: 'None' },
+                              ...getSubcategoriesFor(editingItem.category).map(s => ({ value: s.name, label: s.name })),
+                              { value: '__new__', label: '+ Create new subcategory', isAction: true },
+                            ]
+                          : []
+                      }
                       onChange={v => {
                         if (v === '__new__') setAddingEditSubcategory(true)
                         else setEditSubcategory(v)
@@ -1692,11 +1990,12 @@ export default function InventoryPage() {
                           if (e.key === 'Enter') handleAddEditSubcategory()
                           if (e.key === 'Escape') setAddingEditSubcategory(false)
                         }}
+                        disabled={subcategorySaving}
                       />
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditSubcategory}>
-                        <Check size={15} />
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditSubcategory} disabled={subcategorySaving}>
+                        {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditSubcategory(false)}>
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditSubcategory(false)} disabled={subcategorySaving}>
                         <X size={15} />
                       </button>
                     </div>
@@ -1914,6 +2213,27 @@ export default function InventoryPage() {
               >
                 Confirm Deduction
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="toast-wrap">
+          <div className="toast">
+            <div
+              className={`toast__bar toast__bar--${
+                toast.type === 'danger'
+                  ? 'danger'
+                  : toast.type === 'warning'
+                    ? 'warning'
+                    : toast.type === 'success'
+                      ? 'success'
+                      : 'info'
+              }`}
+            />
+            <div>
+              <div className="toast__text">{toast.message}</div>
             </div>
           </div>
         </div>

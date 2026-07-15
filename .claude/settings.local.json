@@ -87,7 +87,23 @@
       "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\\\\.claude\\\\plugins\" -ErrorAction SilentlyContinue -Force)",
       "Bash(mkdir -p \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup\" && cp -r \"C:/Project/ZenJu/Zenju dev/.claude/skills\" \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup/\" && ls \"/c/Users/SRIVAT~1/AppData/Local/Temp/claude/C--Project-ZenJu-Zenju-dev/3ab58936-9f66-4bcf-8c7d-e73f40ae7d94/scratchpad/skills-backup/skills\")",
       "Bash(ls app/api)",
-      "Bash(find app/api -maxdepth 2 -type d)"
+      "Bash(find app/api -maxdepth 2 -type d)",
+      "Bash(npm run *)",
+      "Bash(curl -s \"http://localhost:3000/auth/forgot-password?email=test%40example.com\")",
+      "Bash(curl -s \"http://localhost:3000/auth/forgot-password?email=test%40example.com\" -o /tmp/fp.html)",
+      "Bash(tail -50 /tmp/nextdev.log)",
+      "Bash(curl -s \"http://localhost:3001/auth/forgot-password?email=test%40example.com\" -o /tmp/fp2.html)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(curl -s -o /dev/null -w \"3000: %{http_code}\\\\n\" http://localhost:3000/ --max-time 3)",
+      "Bash(curl -s -o /dev/null -w \"3001: %{http_code}\\\\n\" http://localhost:3001/ --max-time 3)",
+      "Bash(curl -s -o /dev/null -w \"3002: %{http_code}\\\\n\" http://localhost:3002/ --max-time 3)",
+      "Bash(tail -20 /tmp/nextdev2.log)",
+      "Bash(taskkill //F //PID 36548 //T)",
+      "Bash(taskkill //F //PID 62940 //T)",
+      "Bash(taskkill //F //PID 35892 //T)",
+      "Bash(curl -s -o /dev/null -w \"3000: %{http_code}\\\\n\" http://localhost:3000/ --max-time 5)",
+      "Bash(mkdir -p \"/c/Project/ZenJu/Zenju dev/app/api/businesses/[id]/reset-password\")",
+      "Bash(grep -E '\\\\.\\(ts|tsx|js\\)$')"
     ]
   }
 }

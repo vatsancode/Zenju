@@ -154,6 +154,21 @@ The product identity. Shared information that never changes per variant or branc
 
 ---
 
+### Table — `attributes`
+Business-wide attribute pool (e.g. "Grade", "Size") — shared across inventory items instead of each item storing its own private copy, the same way `category_id` points at the shared `categories` table.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `business_id` | UUID | FK → businesses.id |
+| `name` | TEXT | e.g. "Grade", "Size", "Color" |
+| `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+
+**Unique constraint:** `(business_id, lower(name))` — case-insensitive, no duplicate attribute names per business.
+
+---
+
 ### Table 2 — `attribute_definitions`
 The attribute type names for an item (e.g. Size, Color). One row per attribute type per item.
 
@@ -161,10 +176,10 @@ The attribute type names for an item (e.g. Size, Color). One row per attribute t
 |---|---|---|
 | `id` | UUID v7 | Primary key |
 | `inventory_item_id` | UUID | FK → inventory_items.id |
-| `name` | TEXT | e.g. Size, Color, Weight |
+| `attribute_id` | UUID | FK → attributes.id |
 | `display_order` | INTEGER | Controls column order in UI |
 
-**Unique constraint:** `(inventory_item_id, name)` — a product cannot have two "Size" attributes.
+**Unique constraint:** `(inventory_item_id, attribute_id)` — a product cannot have the same attribute twice.
 
 ---
 
@@ -259,7 +274,7 @@ One row per purchase batch of a variant. Tracks vendor, cost, quantity, and expi
 ### Inventory Relationships
 ```
 inventory_items (category_id → categories, unit_id → units)
-  ├── attribute_definitions
+  ├── attribute_definitions (attribute_id → attributes)
   └── inventory_variants
         ├── variant_attribute_values → attribute_definitions
         └── inventory_batches → suppliers
@@ -285,6 +300,8 @@ Handles both categories and subcategories in one table using a self-referencing 
 | `updated_at` | TIMESTAMP | Auto-updated |
 
 **Rule:** Only one level of nesting — a subcategory cannot itself have children. Enforced in application layer.
+
+**Unique constraint:** `(business_id, parent_id, lower(name)) WHERE is_archived = false` — case-insensitive; archived categories don't block reuse of their name.
 
 ---
 
@@ -466,6 +483,8 @@ Master list of measurement units per business.
 | `created_at` | TIMESTAMP | Auto-set |
 | `updated_at` | TIMESTAMP | Auto-updated |
 
+**Unique constraint:** `(business_id, lower(name))` — case-insensitive, no duplicate unit names per business.
+
 ---
 
 ### Table 17 — `unit_conversions`
@@ -483,6 +502,8 @@ Conversion factors between units.
 **Example:** from=KG, to=Grams, factor=1000. System automatically derives the reverse: 1 Gram = 0.001 KG.
 
 **Unique constraint:** `(business_id, from_unit_id, to_unit_id)` — only one conversion per pair per business. Prevents two entries with conflicting factors for the same unit pair.
+
+**Delete behavior:** `from_unit_id`/`to_unit_id` are `ON DELETE CASCADE` — deleting a unit removes any conversion rows that referenced it (a conversion between two units has no meaning once either unit is gone).
 
 ---
 
@@ -682,9 +703,12 @@ event_log (entity_type + entity_id → anything, performed_by → business_users
 | `business_users` | `(business_id, auth_user_id)` | One role per user per business |
 | `customers` | `(business_id, phone)` | No duplicate customer per phone number |
 | `unit_conversions` | `(business_id, from_unit_id, to_unit_id)` | Only one factor per unit pair — prevents conflicting conversions |
-| `attribute_definitions` | `(inventory_item_id, name)` | No duplicate attribute names per product |
+| `attribute_definitions` | `(inventory_item_id, attribute_id)` | No duplicate attribute per product |
 | `tax_rates` | `(business_id, name, percentage)` | No duplicate tax definitions per business |
 | `catalogue_item_taxes` | `(catalogue_item_id, tax_rate_id)` | Composite PK — one link per item-tax pair |
+| `categories` | `(business_id, parent_id, lower(name)) WHERE is_archived = false` | No duplicate category/subcategory name per business |
+| `units` | `(business_id, lower(name))` | No duplicate unit name per business |
+| `attributes` | `(business_id, lower(name))` | No duplicate attribute name per business |
 
 ---
 
@@ -792,7 +816,8 @@ CREATE INDEX ON offers(business_id, active)  WHERE active = true AND deleted_at 
 | — | `business_types` | Foundation | Lookup list of business categories — super-admin-only, no RLS write policy |
 | — | `admin_users` | Foundation | Platform super-admin allowlist — self-lookup RLS only |
 | 1 | `inventory_items` | Inventory | Raw stock identity — category_id + unit_id linked properly |
-| 2 | `attribute_definitions` | Inventory | Attribute type names per item (Size, Color, etc.) |
+| — | `attributes` | Global | Business-wide attribute pool — shared across inventory items |
+| 2 | `attribute_definitions` | Inventory | Attribute definitions per item — attribute_id links into the shared attributes pool |
 | 3 | `inventory_variants` | Inventory | Each unique version of a product |
 | 4 | `variant_attribute_values` | Inventory | Attribute values per variant |
 | — | `variant_stock_current` | Inventory | **VIEW** — live stock per variant+branch, derived from batch quantities |

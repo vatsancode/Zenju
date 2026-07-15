@@ -43,6 +43,20 @@ This skill cares about: `*.ts`, `*.tsx`, `middleware.ts`, `.env*`,
    report) whether it relies on RLS or explicit filtering — silent assumptions
    are findings.
 
+### MUST rules — query construction
+
+6a. **No untrusted input pasted into a query filter string.** Supabase/
+    PostgREST methods that take a raw filter string — `.or(...)`,
+    `.filter(...)`, `.textSearch(...)`, `.rpc()` with a hand-built SQL/filter
+    fragment, or a dynamically chosen column name in `.order(...)`/`.select()`
+    — must never have a request-derived value (id, search term, sort field)
+    interpolated directly into that string (e.g.
+    `` .or(`id.eq.${id},parent_id.eq.${id}`) ``). A crafted value containing
+    commas/operators can inject extra clauses and widen which rows match.
+    Use the parameterized form instead: `.eq()`, `.in()` with an array,
+    `.ilike()` with the value as an argument (not concatenated), or an
+    allowlist when a column/sort-field name comes from the client.
+
 ### MUST rules — payments & money
 
 7. **Razorpay webhook signature must be verified** (HMAC of raw body with

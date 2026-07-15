@@ -467,14 +467,23 @@ export default function InventoryDetailPage() {
                           </div>
                         </td>
                         <td className={styles.colActions}>
-                          <button
-                            className={styles.removeBtn}
-                            onClick={() => setVariants(prev => prev.filter((_, i) => i !== ri))}
-                            disabled={variants.length <= 1}
-                            title="Remove variant"
-                          >
-                            <X size={14} />
-                          </button>
+                          <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                            <button
+                              className={styles.removeBtn}
+                              onClick={() => router.push(`/dashboard/inventory/${item.id}/variant/${row.id}`)}
+                              title="View variant details"
+                            >
+                              <Eye size={14} />
+                            </button>
+                            <button
+                              className={styles.removeBtn}
+                              onClick={() => setVariants(prev => prev.filter((_, i) => i !== ri))}
+                              disabled={variants.length <= 1}
+                              title="Remove variant"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

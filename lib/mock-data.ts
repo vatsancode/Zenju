@@ -24,142 +24,34 @@ export const mockUser = {
   },
 }
 
-export const mockInventoryItems = [
-  {
-    id: '1',
-    user_id: 'mock-user-1',
-    name: 'Cashews',
-    category: 'Nuts',
-    unit: 'KG',
-    current_stock: 120,
-    par_stock: 50,
-    cost_price: 800,
-    mrp: 1200,
-    availability_status: 'active',
-    notes: '',
-    attributes: ['Grade', 'Roast'],
-    variants: [
-      { id: 'v1', code: 'CSH-320-P', attributes: ['W320', 'Plain'], quantity: 30 },
-      { id: 'v2', code: 'CSH-320-R', attributes: ['W320', 'Roasted'], quantity: 30 },
-      { id: 'v3', code: 'CSH-240-P', attributes: ['W240', 'Plain'], quantity: 30 },
-      { id: 'v4', code: 'CSH-240-R', attributes: ['W240', 'Roasted'], quantity: 30 },
-    ],
-    created_at: '2024-01-15T10:00:00Z',
-    supplier_id: null,
-    branch_id: null
-  },
-  {
-    id: '2',
-    user_id: 'mock-user-1',
-    name: 'Almonds',
-    category: 'Nuts',
-    unit: 'KG',
-    current_stock: 18,
-    par_stock: 25,
-    cost_price: 700,
-    mrp: 1100,
-    availability_status: 'active',
-    notes: 'Reorder soon',
-    attributes: ['Origin', 'Type'],
-    variants: [
-      { id: 'v5', code: 'ALM-CAL-R', attributes: ['California', 'Raw'], quantity: 5 },
-      { id: 'v6', code: 'ALM-CAL-B', attributes: ['California', 'Blanched'], quantity: 5 },
-      { id: 'v7', code: 'ALM-GUR-R', attributes: ['Gurbandi', 'Raw'], quantity: 4 },
-      { id: 'v8', code: 'ALM-GUR-B', attributes: ['Gurbandi', 'Blanched'], quantity: 4 },
-    ],
-    created_at: '2024-01-16T10:00:00Z',
-    supplier_id: null,
-    branch_id: null
-  },
-  {
-    id: '3',
-    user_id: 'mock-user-1',
-    name: 'Pistachios',
-    category: 'Nuts',
-    unit: 'KG',
-    current_stock: 80,
-    par_stock: 20,
-    cost_price: 1200,
-    mrp: 1800,
-    availability_status: 'active',
-    notes: '',
-    attributes: ['Origin', 'Type'],
-    variants: [
-      { id: 'v9', code: 'PST-IRN-R', attributes: ['Iranian', 'Roasted'], quantity: 40 },
-      { id: 'v10', code: 'PST-IRN-S', attributes: ['Iranian', 'Salted'], quantity: 40 },
-    ],
-    created_at: '2024-01-17T10:00:00Z',
-    supplier_id: null,
-    branch_id: null
-  },
-  {
-    id: '4',
-    user_id: 'mock-user-1',
-    name: 'Raisins',
-    category: 'Dry Fruits',
-    unit: 'KG',
-    current_stock: 45,
-    par_stock: 30,
-    cost_price: 300,
-    mrp: 500,
-    availability_status: 'active',
-    notes: '',
-    attributes: ['Type', 'Color'],
-    variants: [
-      { id: 'v11', code: 'RSN-SL-GR', attributes: ['Seedless', 'Green'], quantity: 15 },
-      { id: 'v12', code: 'RSN-SL-GD', attributes: ['Seedless', 'Golden'], quantity: 20 },
-      { id: 'v13', code: 'RSN-SD-GD', attributes: ['Seeded', 'Golden'], quantity: 10 },
-    ],
-    created_at: '2024-01-18T10:00:00Z',
-    supplier_id: null,
-    branch_id: null
-  },
-  { id: '5', user_id: 'mock-user-1', name: 'Walnuts', category: 'Nuts', unit: 'KG', current_stock: 0, par_stock: 15, cost_price: 900, mrp: 1400, availability_status: 'discontinued', notes: 'Supplier unavailable', attributes: ['California', 'In-shell', 'Grade B', 'Halves', 'Shelled'], created_at: '2024-01-19T10:00:00Z', supplier_id: null, branch_id: null },
-  {
-    id: '6',
-    user_id: 'mock-user-1',
-    name: 'Dates',
-    category: 'Dry Fruits',
-    unit: 'KG',
-    current_stock: 12,
-    par_stock: 20,
-    cost_price: 250,
-    mrp: 400,
-    availability_status: 'active',
-    notes: '',
-    attributes: ['Variety', 'Processing'],
-    variants: [
-      { id: 'v14', code: 'DT-MDJ-PT', attributes: ['Medjool', 'Pitted'], quantity: 4 },
-      { id: 'v15', code: 'DT-MDJ-WH', attributes: ['Medjool', 'Whole'], quantity: 4 },
-      { id: 'v16', code: 'DT-AJW-PT', attributes: ['Ajwa', 'Pitted'], quantity: 4 },
-    ],
-    created_at: '2024-01-20T10:00:00Z',
-    supplier_id: null,
-    branch_id: null
-  },
-]
+type MockInventoryVariant = { id: string; code: string; attributes: string[]; quantity: number }
 
-export const mockCategories: Category[] = [
-  { id: '1', user_id: 'mock-user-1', name: 'Nuts', parent_id: null, is_archived: false, sort_order: 0, created_at: '2024-01-15T10:00:00Z' },
-  { id: '2', user_id: 'mock-user-1', name: 'Dry Fruits', parent_id: null, is_archived: false, sort_order: 1, created_at: '2024-01-15T10:00:00Z' },
-  { id: '3', user_id: 'mock-user-1', name: 'Gift Packs', parent_id: null, is_archived: false, sort_order: 2, created_at: '2024-01-15T10:00:00Z' },
-  { id: '4', user_id: 'mock-user-1', name: 'Loose Items', parent_id: null, is_archived: false, sort_order: 3, created_at: '2024-01-15T10:00:00Z' },
-  { id: '5', user_id: 'mock-user-1', name: 'Cashew Variants', parent_id: '1', is_archived: false, sort_order: 0, created_at: '2024-01-15T10:00:00Z' },
-  { id: '6', user_id: 'mock-user-1', name: 'Almond Variants', parent_id: '1', is_archived: false, sort_order: 1, created_at: '2024-01-15T10:00:00Z' },
-]
+type MockInventoryItem = {
+  id: string
+  user_id: string
+  name: string
+  category: string
+  unit: string
+  current_stock: number
+  par_stock: number
+  cost_price: number
+  mrp: number
+  availability_status: string
+  notes: string
+  attributes: string[]
+  variants?: MockInventoryVariant[]
+  created_at: string
+  supplier_id: string | null
+  branch_id: string | null
+}
 
-export const mockUnits: Unit[] = [
-  { id: 'u1', user_id: 'mock-user-1', name: 'KG', allow_decimal: true, is_locked: true, created_at: '2024-01-15T10:00:00Z' },
-  { id: 'u2', user_id: 'mock-user-1', name: 'Grams', allow_decimal: false, is_locked: true, created_at: '2024-01-15T10:00:00Z' },
-  { id: 'u3', user_id: 'mock-user-1', name: 'Litres', allow_decimal: true, is_locked: false, created_at: '2024-01-15T10:00:00Z' },
-  { id: 'u4', user_id: 'mock-user-1', name: 'Pieces', allow_decimal: false, is_locked: true, created_at: '2024-01-15T10:00:00Z' },
-  { id: 'u5', user_id: 'mock-user-1', name: 'ML', allow_decimal: false, is_locked: false, created_at: '2024-01-15T10:00:00Z' },
-]
+export const mockInventoryItems: MockInventoryItem[] = []
 
-export const mockUnitConversions: UnitConversion[] = [
-  { id: 'uc1', user_id: 'mock-user-1', from_unit_id: 'u1', to_unit_id: 'u2', factor: 1000, created_at: '2024-01-15T10:00:00Z' },
-  { id: 'uc2', user_id: 'mock-user-1', from_unit_id: 'u3', to_unit_id: 'u5', factor: 1000, created_at: '2024-01-15T10:00:00Z' },
-]
+export const mockCategories: Category[] = []
+
+export const mockUnits: Unit[] = []
+
+export const mockUnitConversions: UnitConversion[] = []
 
 export const mockTags = [
   { id: '1', name: 'bestseller' },
@@ -433,6 +325,108 @@ export const mockCustomers: MockCustomer[] = [
   { id: 'c3', name: 'Meena Krishnan', phone: '9900112233', description: 'Monthly bulk order for office', total_orders: 8, last_order_at: '2024-06-10T16:45:00Z' },
   { id: 'c4', name: 'Suresh Reddy', phone: '9988776655', description: 'Event caterer — seasonal orders', total_orders: 5, last_order_at: '2024-05-20T09:00:00Z' },
   { id: 'c5', name: 'Kavitha Nair', phone: '8877665544', description: 'Health-conscious — prefers organic mix', total_orders: 19, last_order_at: '2024-06-17T11:20:00Z' },
+]
+
+// ─── Purchases (Purchase Order module — UI-only mock data) ────────────────────
+
+export interface MockSupplier {
+  id: string
+  name: string
+  phone: string
+  email: string
+  notes: string
+}
+
+export const mockSuppliers: MockSupplier[] = [
+  { id: 's1', name: 'Anand Traders', phone: '9840011223', email: 'anand.traders@example.com', notes: 'Reliable for cashews & almonds — 7-day credit' },
+  { id: 's2', name: 'Coastal Nut Co.', phone: '9845566778', email: '', notes: 'Best price on bulk pistachios' },
+  { id: 's3', name: 'Sundar Dry Fruits Wholesale', phone: '9900123456', email: 'sundar.wholesale@example.com', notes: 'Slow on delivery during festival season' },
+]
+
+export type PurchaseOrderStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled'
+
+export interface MockPurchaseOrderItem {
+  id: string
+  item_name: string
+  variant_label: string
+  unit: string
+  qty_ordered: number
+  qty_received: number
+  unit_cost: number
+}
+
+export interface MockPurchaseOrder {
+  id: string
+  po_number: string
+  supplier_id: string
+  branch: string
+  order_date: string
+  expected_date: string | null
+  status: PurchaseOrderStatus
+  notes: string
+  items: MockPurchaseOrderItem[]
+  created_at: string
+}
+
+export const mockPurchaseOrders: MockPurchaseOrder[] = [
+  {
+    id: 'po1',
+    po_number: 'PO-0114',
+    supplier_id: 's1',
+    branch: 'Main Branch',
+    order_date: '2024-06-20',
+    expected_date: '2024-06-24',
+    status: 'received',
+    notes: '',
+    items: [
+      { id: 'poi1', item_name: 'Cashews', variant_label: '250g Pack', unit: 'KG', qty_ordered: 50, qty_received: 50, unit_cost: 620 },
+      { id: 'poi2', item_name: 'Almonds', variant_label: '500g Pack', unit: 'KG', qty_ordered: 30, qty_received: 30, unit_cost: 540 },
+    ],
+    created_at: '2024-06-20T09:00:00Z',
+  },
+  {
+    id: 'po2',
+    po_number: 'PO-0115',
+    supplier_id: 's2',
+    branch: 'Main Branch',
+    order_date: '2024-06-28',
+    expected_date: '2024-07-02',
+    status: 'partially_received',
+    notes: 'Second half of pistachio order pending',
+    items: [
+      { id: 'poi3', item_name: 'Pistachios', variant_label: '250g Pack', unit: 'KG', qty_ordered: 40, qty_received: 20, unit_cost: 890 },
+    ],
+    created_at: '2024-06-28T11:30:00Z',
+  },
+  {
+    id: 'po3',
+    po_number: 'PO-0116',
+    supplier_id: 's1',
+    branch: 'Main Branch',
+    order_date: '2024-07-05',
+    expected_date: '2024-07-08',
+    status: 'ordered',
+    notes: '',
+    items: [
+      { id: 'poi4', item_name: 'Cashews', variant_label: '250g Pack', unit: 'KG', qty_ordered: 60, qty_received: 0, unit_cost: 635 },
+      { id: 'poi5', item_name: 'Dates', variant_label: '—', unit: 'KG', qty_ordered: 25, qty_received: 0, unit_cost: 210 },
+    ],
+    created_at: '2024-07-05T08:15:00Z',
+  },
+  {
+    id: 'po4',
+    po_number: 'PO-0117',
+    supplier_id: 's3',
+    branch: 'Main Branch',
+    order_date: '2024-07-10',
+    expected_date: null,
+    status: 'draft',
+    notes: 'Waiting on vendor price confirmation',
+    items: [
+      { id: 'poi6', item_name: 'Raisins', variant_label: '—', unit: 'KG', qty_ordered: 20, qty_received: 0, unit_cost: 260 },
+    ],
+    created_at: '2024-07-10T15:00:00Z',
+  },
 ]
 
 export { formatINR } from './utils/format'

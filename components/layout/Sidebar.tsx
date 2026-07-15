@@ -35,6 +35,10 @@ export default function Sidebar() {
         <div className="nav-item__bar"></div>
         <span>Stocks</span>
       </Link>
+      <Link href="/dashboard/purchases" className={`nav-item ${isActive('/dashboard/purchases') ? 'active' : ''}`}>
+        <div className="nav-item__bar"></div>
+        <span>Purchases</span>
+      </Link>
       <Link href="/dashboard/catalogue" className={`nav-item ${isActive('/dashboard/catalogue') ? 'active' : ''}`}>
         <div className="nav-item__bar"></div>
         <span>Catalogue</span>

@@ -326,7 +326,7 @@
  * Stack (right → left):  Actions | Selling | Cost | Par Stock | Qty
  */
 .variantTableFull {
-  --w-actions:  40px;
+  --w-actions:  64px;
   --w-selling: 116px;
   --w-cost:    116px;
   --w-par:      84px;

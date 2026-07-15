@@ -4,6 +4,21 @@ import { cookies } from 'next/headers'
 import type { NextRequest, NextResponse } from 'next/server'
 import type { Database } from '@/types/database'
 
+// @supabase/ssr's generic client typings don't line up with
+// @supabase/supabase-js's — the RLS-respecting client loses its Database
+// generics past `.from()`, typing every result (and insert/update argument)
+// as `never`. Routed through `any` at this single query-builder boundary;
+// every value in and out must be cast back to a named type immediately
+// after use at each call site. Consolidated here so there's one place to
+// remove this once the package versions are reconciled, instead of a copy
+// per service file.
+export function table(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  name: keyof Database['public']['Tables']
+): any {
+  return supabase.from(name)
+}
+
 export async function createClient() {
   const cookieStore = await cookies()
 

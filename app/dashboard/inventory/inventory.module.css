@@ -953,6 +953,12 @@
   text-align: left;
 }
 
+.customSelectTrigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .customSelectDropdown {
   position: absolute;
   top: calc(100% + 4px);

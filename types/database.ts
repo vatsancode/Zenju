@@ -112,6 +112,14 @@ export interface Category {
   updated_at: string
 }
 
+export interface Attribute {
+  id: string
+  business_id: string
+  name: string
+  created_at: string
+  updated_at: string
+}
+
 export interface Tag {
   id: string
   business_id: string
@@ -151,7 +159,7 @@ export interface InventoryItem {
 export interface AttributeDefinition {
   id: string
   inventory_item_id: string
-  name: string
+  attribute_id: string
   display_order: number
 }
 
@@ -404,6 +412,7 @@ export interface Database {
       units: TableDef<Unit>
       unit_conversions: TableDef<UnitConversion>
       categories: TableDef<Category>
+      attributes: TableDef<Attribute>
       tags: TableDef<Tag>
       entity_tags: TableDef<EntityTag>
       inventory_items: TableDef<InventoryItem>
