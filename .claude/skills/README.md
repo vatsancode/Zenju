@@ -20,6 +20,12 @@ being rewritten — checks that lean on it have less to enforce until it returns
 | `/pre-commit-review` | Runs ALL checkers above → one combined report card |
 | `/update-docs` | Finds doc sections made stale by the session's changes, proposes edits |
 
+## Standalone audits (NOT part of pre-commit-review)
+
+| Skill | What it checks |
+|---|---|
+| `/find-dead-logic` | Whole-codebase sweep for state/handlers/fields that are defined but never reachable from the UI or any caller — not diff-scoped, run on demand |
+
 ## Typical end-of-session flow
 
 ```

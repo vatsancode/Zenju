@@ -3,28 +3,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Pencil, Plus, X, Check, Upload, Filter, ChevronDown } from 'lucide-react'
-import { mockInventoryItems, formatINR } from '@/lib/mock-data'
-import type { InventoryItem, StockUnit } from '@/types/database'
+import { Pencil, Plus, X, Check, Filter, ChevronDown } from 'lucide-react'
+import type { InventoryItemWithDetails } from '@/lib/services/inventory'
 import type { CategoryWithCount } from '@/lib/services/categories'
 import type { UnitWithUsage } from '@/lib/services/units'
 import type { AttributeWithUsage } from '@/lib/services/attributes'
 import styles from './inventory.module.css'
 
 // ─── Form-local types ─────────────────────────────────────────────────────────
-
-type VariantRow = {
-  id: string
-  code: string
-  attributes: string[]  // values indexed to match form.selected_attributes
-  quantity: number
-}
-
-type TaxLine = {
-  id: string
-  name: string
-  percentage: number
-}
 
 type ToastState = {
   message: string
@@ -33,27 +19,14 @@ type ToastState = {
 
 type NewItemForm = {
   name: string
-  // Attributes — selected from the shared attribute pool for this item's variants
+  // Attributes — selected from the shared attribute pool; these define what
+  // will vary between this product's variants (created in a later step).
   selected_attributes: string[]
-  // Quantity
-  has_variation: boolean
-  quantity: number | ''
-  variants: VariantRow[]
-  // Item ID
-  item_id: string
   // Unit
   unit: string
   // Category / subcategory
   category: string
   subcategory: string
-  // Pricing
-  purchase_price: number | ''
-  price_mode: 'per_unit' | 'total'
-  selling_price: number | ''
-  taxes: TaxLine[]
-  tax_inclusive: boolean
-  // Stock
-  par_stock: number | ''
   // Expiry
   has_expiry: boolean
   expires_within_days: number | ''
@@ -124,36 +97,13 @@ function CustomSelect({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function genVariantCode(index: number) {
-  return `VAR-${String(index + 1).padStart(3, '0')}`
-}
-
-function makeEmptyVariant(index: number, attrCount: number): VariantRow {
-  return {
-    id: `${Date.now()}-${index}-${Math.random()}`,
-    code: genVariantCode(index),
-    attributes: Array(attrCount).fill(''),
-    quantity: 0,
-  }
-}
-
 function emptyForm(): NewItemForm {
   return {
     name: '',
     selected_attributes: [],
-    has_variation: false,
-    quantity: 0,
-    variants: [makeEmptyVariant(0, 0), makeEmptyVariant(1, 0)],
-    item_id: '',
-    unit: 'Pieces',
+    unit: '',
     category: '',
     subcategory: '',
-    purchase_price: '',
-    price_mode: 'per_unit',
-    selling_price: '',
-    taxes: [],
-    tax_inclusive: true,
-    par_stock: '',
     has_expiry: false,
     expires_within_days: '',
     description: '',
@@ -164,16 +114,9 @@ function emptyForm(): NewItemForm {
 
 const FILTER_DEFS = [
   { key: 'category', label: 'Category' },
-  { key: 'status', label: 'Status' },
 ] as const
 
 type FilterKey = typeof FILTER_DEFS[number]['key']
-
-const STATUS_OPTIONS = [
-  { value: 'in_stock', label: 'In Stock' },
-  { value: 'low_stock', label: 'Low Stock' },
-  { value: 'out_of_stock', label: 'Out of Stock' },
-] as const
 
 // ─── Page component ───────────────────────────────────────────────────────────
 
@@ -183,37 +126,19 @@ export default function InventoryPage() {
   // ── Table state ─────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('')
   const [categoryFilters, setCategoryFilters] = useState<string[]>([])
-  const [statusFilters, setStatusFilters] = useState<string[]>([])
   const [activeFilterTypes, setActiveFilterTypes] = useState<FilterKey[]>([])
   const [filterTypeDropdownOpen, setFilterTypeDropdownOpen] = useState(false)
   const [addFilterDropdownOpen, setAddFilterDropdownOpen] = useState(false)
   const [openValueDropdown, setOpenValueDropdown] = useState<FilterKey | null>(null)
   const [showAddDrawer, setShowAddDrawer] = useState(false)
-  const [items, setItems] = useState<InventoryItem[]>(mockInventoryItems as InventoryItem[])
-
-  // ── Edit / Modal state ────────────────────────────────────────────────────────
-  const [showEditDrawer, setShowEditDrawer] = useState(false)
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
-  const [showStockModal, setShowStockModal] = useState(false)
-  const [showWasteModal, setShowWasteModal] = useState(false)
-  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
-  const [arrivalQty, setArrivalQty] = useState(0)
-  const [arrivalCostPrice, setArrivalCostPrice] = useState(0)
-  const [wasteQty, setWasteQty] = useState(0)
-  const [wasteReason, setWasteReason] = useState('')
-
-  // ── Edit drawer extended state ────────────────────────────────────────────────
-  const [editSubcategory, setEditSubcategory] = useState('')
-  const [editTaxes, setEditTaxes] = useState<TaxLine[]>([])
-  const [editTaxInclusive, setEditTaxInclusive] = useState(true)
-  const [editHasVariation, setEditHasVariation] = useState(false)
-  const [editVariants, setEditVariants] = useState<VariantRow[]>([])
-  const [editAddingAttr, setEditAddingAttr] = useState(false)
-  const [editNewAttrInput, setEditNewAttrInput] = useState('')
-  const [editOriginalId, setEditOriginalId] = useState('')
+  const [items, setItems] = useState<InventoryItemWithDetails[]>([])
+  const [itemsLoading, setItemsLoading] = useState(true)
+  const [itemsLoadError, setItemsLoadError] = useState('')
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [form, setForm] = useState<NewItemForm>(emptyForm())
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
 
   // ── Attributes — loaded from the real Settings-managed data ──────────────────
   const [attributes, setAttributes] = useState<AttributeWithUsage[]>([])
@@ -258,23 +183,43 @@ export default function InventoryPage() {
     ? items.filter(i => i.name.toLowerCase().includes(form.name.toLowerCase())).slice(0, 6)
     : []
 
-  // ── Image ────────────────────────────────────────────────────────────────────
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
   const newCategoryInputRef = useRef<HTMLInputElement>(null)
   const newSubcategoryInputRef = useRef<HTMLInputElement>(null)
   const newUnitInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Edit drawer "+ Create new" state (Unit / Category / Subcategory) ─────────
-  const [addingEditUnit, setAddingEditUnit] = useState(false)
+  // ── Edit drawer — kept as a separate form/state block from the Add drawer
+  // so both can't clobber each other if a user somehow has both open.
+  const [showEditDrawer, setShowEditDrawer] = useState(false)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<NewItemForm>(emptyForm())
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  // Set when the server reports that removing an attribute would delete
+  // real variant data — shown as a confirm popup before retrying with
+  // confirm_attribute_removal: true.
+  const [confirmAttrRemoval, setConfirmAttrRemoval] = useState<string[] | null>(null)
+  const [editAddingAttr, setEditAddingAttr] = useState(false)
+  const [editNewAttrInput, setEditNewAttrInput] = useState('')
+  const [editAddingUnit, setEditAddingUnit] = useState(false)
   const [newEditUnitInput, setNewEditUnitInput] = useState('')
-  const [addingEditCategory, setAddingEditCategory] = useState(false)
+  const [editAddingCategory, setEditAddingCategory] = useState(false)
   const [newEditCategoryInput, setNewEditCategoryInput] = useState('')
-  const [addingEditSubcategory, setAddingEditSubcategory] = useState(false)
+  const [editAddingSubcategory, setEditAddingSubcategory] = useState(false)
   const [newEditSubcategoryInput, setNewEditSubcategoryInput] = useState('')
-  const newEditUnitInputRef = useRef<HTMLInputElement>(null)
   const newEditCategoryInputRef = useRef<HTMLInputElement>(null)
   const newEditSubcategoryInputRef = useRef<HTMLInputElement>(null)
+  const newEditUnitInputRef = useRef<HTMLInputElement>(null)
+
+  const editAvailableAttributes = attributes
+    .map(a => a.name)
+    .filter(a => !editForm.selected_attributes.includes(a))
+  const editAttrSuggestions = editAddingAttr
+    ? editAvailableAttributes.filter(
+      a =>
+        !editNewAttrInput.trim() ||
+        a.toLowerCase().includes(editNewAttrInput.toLowerCase())
+    )
+    : []
 
   // ── Toast ────────────────────────────────────────────────────────────────────
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -285,7 +230,22 @@ export default function InventoryPage() {
     toastTimer.current = setTimeout(() => setToast(null), 3000)
   }, [])
 
-  // ── Load categories and units from the server ─────────────────────────────────
+  // ── Load items, categories, units, attributes from the server ────────────────
+  async function loadItems() {
+    setItemsLoading(true)
+    setItemsLoadError('')
+    try {
+      const res = await fetch('/api/inventory')
+      const body = await res.json()
+      if (!res.ok) { setItemsLoadError(body.error || 'Could not load products.'); return }
+      setItems(body.data)
+    } catch {
+      setItemsLoadError('Could not load products. Please check your connection.')
+    } finally {
+      setItemsLoading(false)
+    }
+  }
+
   async function loadCategories() {
     setCategoriesLoading(true)
     setCategoriesLoadError('')
@@ -316,9 +276,6 @@ export default function InventoryPage() {
     }
   }
 
-  useEffect(() => { loadCategories() }, [])
-  useEffect(() => { loadUnits() }, [])
-
   async function loadAttributes() {
     setAttributesLoading(true)
     setAttributesLoadError('')
@@ -334,31 +291,18 @@ export default function InventoryPage() {
     }
   }
 
+  useEffect(() => { loadItems() }, [])
+  useEffect(() => { loadCategories() }, [])
+  useEffect(() => { loadUnits() }, [])
   useEffect(() => { loadAttributes() }, [])
 
   // ── Auto-focus: focus inline inputs after they mount ─────────────────────────
   useEffect(() => { if (addingCategory) newCategoryInputRef.current?.focus() }, [addingCategory])
   useEffect(() => { if (addingSubcategory) newSubcategoryInputRef.current?.focus() }, [addingSubcategory])
   useEffect(() => { if (addingUnit) newUnitInputRef.current?.focus() }, [addingUnit])
-  useEffect(() => { if (addingEditUnit) newEditUnitInputRef.current?.focus() }, [addingEditUnit])
-  useEffect(() => { if (addingEditCategory) newEditCategoryInputRef.current?.focus() }, [addingEditCategory])
-  useEffect(() => { if (addingEditSubcategory) newEditSubcategoryInputRef.current?.focus() }, [addingEditSubcategory])
-
-  // ── Auto-focus tracking for dynamically added rows ───────────────────────────
-  const [lastAddedVariantId, setLastAddedVariantId] = useState('')
-  const [lastAddedTaxId, setLastAddedTaxId] = useState('')
-  const [lastAddedEditTaxId, setLastAddedEditTaxId] = useState('')
-
-  // ── Derived values ───────────────────────────────────────────────────────────
-  const totalQty = form.has_variation
-    ? form.variants.reduce((s, v) => s + Number(v.quantity || 0), 0)
-    : Number(form.quantity || 0)
-
-  const purchasePricePerUnit = (() => {
-    if (form.purchase_price === '') return 0
-    if (form.price_mode === 'per_unit') return Number(form.purchase_price)
-    return totalQty > 0 ? Number(form.purchase_price) / totalQty : 0
-  })()
+  useEffect(() => { if (editAddingCategory) newEditCategoryInputRef.current?.focus() }, [editAddingCategory])
+  useEffect(() => { if (editAddingSubcategory) newEditSubcategoryInputRef.current?.focus() }, [editAddingSubcategory])
+  useEffect(() => { if (editAddingUnit) newEditUnitInputRef.current?.focus() }, [editAddingUnit])
 
   // Attributes not yet selected for this item
   const availableAttributes = attributes
@@ -374,42 +318,18 @@ export default function InventoryPage() {
     )
     : []
 
-  // Same, for the Edit drawer's attribute picker
-  const editAvailableAttributes = editingItem
-    ? attributes.map(a => a.name).filter(a => !(editingItem.attributes || []).includes(a))
-    : []
-  const editAttrSuggestions = editAddingAttr
-    ? editAvailableAttributes.filter(
-      a =>
-        !editNewAttrInput.trim() ||
-        a.toLowerCase().includes(editNewAttrInput.toLowerCase())
-    )
-    : []
-
   // ── Table derived ─────────────────────────────────────────────────────────────
-  const tableCategories = Array.from(new Set(items.map(item => item.category)))
+  const tableCategories = Array.from(
+    new Set(items.map(item => item.category_name).filter((c): c is string => !!c))
+  )
 
   const activeFilterCount = activeFilterTypes.length
 
   const filteredItems = items.filter(item => {
     const matchesSearch = !search || item.name.toLowerCase().includes(search.toLowerCase())
-    const matchesCategory = categoryFilters.length === 0 || categoryFilters.includes(item.category)
-    const isOutOfStock = item.availability_status !== 'active'
-    const isLowStock = !isOutOfStock && item.current_stock <= item.par_stock
-    const isInStock = !isOutOfStock && !isLowStock
-    const matchesStatus = statusFilters.length === 0 || statusFilters.some(s =>
-      s === 'out_of_stock' ? isOutOfStock : s === 'low_stock' ? isLowStock : isInStock
-    )
-    return matchesSearch && matchesCategory && matchesStatus
+    const matchesCategory = categoryFilters.length === 0 || (item.category_name != null && categoryFilters.includes(item.category_name))
+    return matchesSearch && matchesCategory
   })
-
-  const inventoryWorth = items.reduce(
-    (sum, item) => sum + item.current_stock * item.cost_price,
-    0
-  )
-  const lowStockCount = items.filter(
-    item => item.current_stock <= item.par_stock && item.availability_status === 'active'
-  ).length
 
   // ── Filter handlers ───────────────────────────────────────────────────────────
 
@@ -423,14 +343,12 @@ export default function InventoryPage() {
   function removeFilterType(key: FilterKey) {
     setActiveFilterTypes(prev => prev.filter(k => k !== key))
     if (key === 'category') setCategoryFilters([])
-    if (key === 'status') setStatusFilters([])
     if (openValueDropdown === key) setOpenValueDropdown(null)
   }
 
   function clearAllFilters() {
     setActiveFilterTypes([])
     setCategoryFilters([])
-    setStatusFilters([])
     setOpenValueDropdown(null)
     setSearch('')
   }
@@ -442,25 +360,13 @@ export default function InventoryPage() {
     setForm(prev => ({
       ...prev,
       selected_attributes: [...prev.selected_attributes, attrName],
-      // Grow each variant row's attributes array by one empty slot
-      variants: prev.variants.map(v => ({
-        ...v,
-        attributes: [...v.attributes, ''],
-      })),
     }))
   }
 
   function removeSelectedAttribute(attrName: string) {
-    const idx = form.selected_attributes.indexOf(attrName)
-    if (idx === -1) return
     setForm(prev => ({
       ...prev,
       selected_attributes: prev.selected_attributes.filter(a => a !== attrName),
-      // Remove the matching index from every variant row
-      variants: prev.variants.map(v => ({
-        ...v,
-        attributes: v.attributes.filter((_, i) => i !== idx),
-      })),
     }))
   }
 
@@ -508,35 +414,36 @@ export default function InventoryPage() {
     setAddingAttr(false)
   }
 
-  function addEditAttribute(name: string) {
-    setEditingItem(prev => {
-      if (!prev) return null
-      if ((prev.attributes || []).includes(name)) return prev
-      return { ...prev, attributes: [...(prev.attributes || []), name] }
-    })
-    setEditVariants(prev => prev.map(v => ({ ...v, attributes: [...v.attributes, ''] })))
+  function addEditSelectedAttribute(attrName: string) {
+    if (editForm.selected_attributes.includes(attrName)) return
+    setEditForm(prev => ({ ...prev, selected_attributes: [...prev.selected_attributes, attrName] }))
+  }
+
+  function removeEditSelectedAttribute(attrName: string) {
+    setEditForm(prev => ({ ...prev, selected_attributes: prev.selected_attributes.filter(a => a !== attrName) }))
   }
 
   async function handleCreateEditAttribute(name: string) {
     const attr = await resolveOrCreateAttribute(name)
     if (!attr) return
-    addEditAttribute(attr.name)
+    addEditSelectedAttribute(attr.name)
     setEditNewAttrInput('')
     setEditAddingAttr(false)
   }
 
   // ── Other form handlers ───────────────────────────────────────────────────────
 
-  function handleSelectSuggestion(item: InventoryItem) {
+  function handleSelectSuggestion(item: InventoryItemWithDetails) {
     setForm(prev => ({
       ...prev,
       name: item.name,
-      category: item.category,
-      unit: item.unit,
-      purchase_price: item.cost_price,
-      selling_price: item.mrp,
-      par_stock: item.par_stock,
-      description: item.notes || '',
+      category: item.category_name ?? '',
+      subcategory: '',
+      unit: item.unit_name,
+      has_expiry: item.has_expiry,
+      expires_within_days: item.expires_within_days ?? '',
+      description: item.notes ?? '',
+      selected_attributes: [...item.attribute_names],
     }))
     setShowSuggestions(false)
   }
@@ -631,136 +538,141 @@ export default function InventoryPage() {
     setNewSubcategoryInput('')
   }
 
-  // ── Edit-drawer "+ Create new" handlers ─────────────────────────────────────
   async function handleAddEditUnit() {
     const name = newEditUnitInput.trim()
-    if (!name) { setAddingEditUnit(false); return }
+    if (!name) { setEditAddingUnit(false); return }
     const created = await createUnitRemote(name)
     if (!created) return
-    setEditingItem(prev => prev ? { ...prev, unit: created.name as StockUnit } : null)
-    setAddingEditUnit(false)
+    setEditForm(prev => ({ ...prev, unit: created.name }))
+    setEditAddingUnit(false)
     setNewEditUnitInput('')
   }
 
   async function handleAddEditCategory() {
     const name = newEditCategoryInput.trim()
-    if (!name) { setAddingEditCategory(false); return }
+    if (!name) { setEditAddingCategory(false); return }
     const created = await createCategoryRemote(name, null)
     if (!created) return
-    setEditingItem(prev => prev ? { ...prev, category: created.name } : null)
-    setEditSubcategory('')
-    setAddingEditCategory(false)
+    setEditForm(prev => ({ ...prev, category: created.name, subcategory: '' }))
+    setEditAddingCategory(false)
     setNewEditCategoryInput('')
   }
 
   async function handleAddEditSubcategory() {
     const name = newEditSubcategoryInput.trim()
-    if (!name || !editingItem) { setAddingEditSubcategory(false); return }
-    const parent = rootCategories.find(c => c.name === editingItem.category)
+    if (!name) { setEditAddingSubcategory(false); return }
+    const parent = rootCategories.find(c => c.name === editForm.category)
     if (!parent) return
     const created = await createCategoryRemote(name, parent.id)
     if (!created) return
-    setEditSubcategory(created.name)
-    setAddingEditSubcategory(false)
+    setEditForm(prev => ({ ...prev, subcategory: created.name }))
+    setEditAddingSubcategory(false)
     setNewEditSubcategoryInput('')
   }
 
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) {
-      if (imagePreview) URL.revokeObjectURL(imagePreview)
-      setImagePreview(URL.createObjectURL(file))
-    }
+  // Opens the edit drawer prefilled from the item — splits its category
+  // back into category/subcategory the same way the create form collects
+  // them, by walking up to find whether it's a root category or a child.
+  function handleOpenEdit(item: InventoryItemWithDetails) {
+    const own = item.category_id ? categories.find(c => c.id === item.category_id) : null
+    const isRoot = own ? own.parent_id === null : true
+    const parent = own && !isRoot ? categories.find(c => c.id === own.parent_id) : null
+
+    setEditingItemId(item.id)
+    setEditForm({
+      name: item.name,
+      selected_attributes: [...item.attribute_names],
+      unit: item.unit_name,
+      category: isRoot ? (own?.name ?? '') : (parent?.name ?? ''),
+      subcategory: isRoot ? '' : (own?.name ?? ''),
+      has_expiry: item.has_expiry,
+      expires_within_days: item.expires_within_days ?? '',
+      description: item.notes ?? '',
+    })
+    setEditAddingAttr(false)
+    setEditAddingUnit(false)
+    setEditAddingCategory(false)
+    setEditAddingSubcategory(false)
+    setEditError('')
+    setConfirmAttrRemoval(null)
+    setShowEditDrawer(true)
   }
 
-  function handleRemoveImage() {
-    if (imagePreview) URL.revokeObjectURL(imagePreview)
-    setImagePreview(null)
-    if (imageInputRef.current) imageInputRef.current.value = ''
+  function handleCloseEditDrawer() {
+    setShowEditDrawer(false)
+    setEditingItemId(null)
+    setEditForm(emptyForm())
+    setEditAddingAttr(false)
+    setEditAddingUnit(false)
+    setEditAddingCategory(false)
+    setEditAddingSubcategory(false)
+    setEditError('')
+    setConfirmAttrRemoval(null)
   }
 
-  function handleAddVariantRow() {
-    const newId = `${Date.now()}-${Math.random()}`
-    setLastAddedVariantId(newId)
-    setForm(prev => ({
-      ...prev,
-      variants: [
-        ...prev.variants,
-        {
-          id: newId,
-          code: genVariantCode(prev.variants.length),
-          attributes: Array(prev.selected_attributes.length).fill(''),
-          quantity: 0,
-        },
-      ],
-    }))
-  }
+  async function handleSaveEdit(confirmAttributeRemoval = false) {
+    if (!editingItemId || !editForm.name.trim() || !editForm.unit || editSaving) return
 
-  function updateVariantAttr(rowIdx: number, attrIdx: number, value: string) {
-    setForm(prev => ({
-      ...prev,
-      variants: prev.variants.map((v, i) =>
-        i === rowIdx
-          ? { ...v, attributes: v.attributes.map((a, j) => (j === attrIdx ? value : a)) }
-          : v
-      ),
-    }))
-  }
+    const unit = units.find(u => u.name === editForm.unit)
+    if (!unit) { setEditError('Please select a valid unit.'); return }
 
-  function updateVariantField<K extends 'quantity' | 'code'>(
-    rowIdx: number,
-    key: K,
-    value: VariantRow[K]
-  ) {
-    setForm(prev => ({
-      ...prev,
-      variants: prev.variants.map((v, i) =>
-        i === rowIdx ? { ...v, [key]: value } : v
-      ),
-    }))
-  }
-
-  function updateTax(taxIdx: number, key: keyof TaxLine, value: string | number) {
-    setForm(prev => ({
-      ...prev,
-      taxes: prev.taxes.map((t, i) => (i === taxIdx ? { ...t, [key]: value } : t)),
-    }))
-  }
-
-  function handleSaveItem() {
-    if (!form.name.trim() || !form.category.trim()) return
-
-    const created: InventoryItem = {
-      id: form.item_id.trim() || Date.now().toString(),
-      user_id: 'mock-user-1',
-      name: form.name.trim(),
-      category: form.category.trim(),
-      unit: form.unit as StockUnit,
-      current_stock: totalQty,
-      par_stock: Number(form.par_stock || 0),
-      cost_price: purchasePricePerUnit,
-      mrp: Number(form.selling_price || 0),
-      availability_status: 'active',
-      notes: form.description.trim() || null,
-      attributes: form.selected_attributes,
-      variants: form.has_variation ? form.variants.map(v => ({
-        id: v.id,
-        code: v.code,
-        attributes: [...v.attributes],
-        quantity: v.quantity
-      })) : undefined,
-      created_at: new Date().toISOString(),
-      supplier_id: null,
-      branch_id: null,
+    const category = editForm.subcategory
+      ? getSubcategoriesFor(editForm.category).find(c => c.name === editForm.subcategory)
+      : editForm.category
+        ? rootCategories.find(c => c.name === editForm.category)
+        : null
+    if ((editForm.subcategory || editForm.category) && !category) {
+      setEditError('Please select a valid category.')
+      return
     }
 
-    setItems(prev => [...prev, created])
-    handleCloseDrawer()
+    const attributeIds = editForm.selected_attributes
+      .map(name => attributes.find(a => a.name === name)?.id)
+      .filter((id): id is string => !!id)
+
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const res = await fetch(`/api/inventory/${editingItemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          category_id: category?.id ?? null,
+          unit_id: unit.id,
+          has_expiry: editForm.has_expiry,
+          expires_within_days: editForm.has_expiry && editForm.expires_within_days !== ''
+            ? Number(editForm.expires_within_days)
+            : null,
+          notes: editForm.description.trim() || null,
+          attribute_ids: attributeIds,
+          confirm_attribute_removal: confirmAttributeRemoval,
+        }),
+      })
+      const body = await res.json()
+
+      if (!res.ok) {
+        if (body.requires_confirmation) {
+          setConfirmAttrRemoval(body.affected_attributes ?? [])
+          return
+        }
+        setEditError(body.error || 'Could not save the product.')
+        return
+      }
+
+      setItems(prev => prev.map(item => item.id === editingItemId ? body.data : item))
+      showToast(`"${body.data.name}" updated`)
+      handleCloseEditDrawer()
+    } catch {
+      setEditError('Could not save the product. Please check your connection.')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   function handleCloseDrawer() {
     setForm(emptyForm())
-    handleRemoveImage()
+    setCreateError('')
     setAddingUnit(false)
     setAddingCategory(false)
     setAddingSubcategory(false)
@@ -769,50 +681,52 @@ export default function InventoryPage() {
     setShowAddDrawer(false)
   }
 
-  function handleSaveEdit() {
-    if (!editingItem) return
-    const updated: InventoryItem = {
-      ...editingItem,
-      variants: editHasVariation ? editVariants.map(v => ({
-        id: v.id,
-        code: v.code,
-        attributes: [...v.attributes],
-        quantity: v.quantity
-      })) : undefined,
-      current_stock: editHasVariation
-        ? editVariants.reduce((s, v) => s + Number(v.quantity || 0), 0)
-        : editingItem.current_stock
+  async function handleSaveItem() {
+    if (!form.name.trim() || !form.unit || createSaving) return
+
+    const unit = units.find(u => u.name === form.unit)
+    if (!unit) { setCreateError('Please select a valid unit.'); return }
+
+    const category = form.subcategory
+      ? getSubcategoriesFor(form.category).find(c => c.name === form.subcategory)
+      : form.category
+        ? rootCategories.find(c => c.name === form.category)
+        : null
+    if ((form.subcategory || form.category) && !category) { setCreateError('Please select a valid category.'); return }
+
+    const attributeIds = form.selected_attributes
+      .map(name => attributes.find(a => a.name === name)?.id)
+      .filter((id): id is string => !!id)
+
+    setCreateSaving(true)
+    setCreateError('')
+    try {
+      const res = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          category_id: category?.id ?? null,
+          unit_id: unit.id,
+          has_expiry: form.has_expiry,
+          expires_within_days: form.has_expiry && form.expires_within_days !== ''
+            ? Number(form.expires_within_days)
+            : null,
+          notes: form.description.trim() || null,
+          attribute_ids: attributeIds,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) { setCreateError(body.error || 'Could not create the product.'); return }
+
+      setItems(prev => [body.data, ...prev])
+      showToast(`"${body.data.name}" product created`)
+      handleCloseDrawer()
+    } catch {
+      setCreateError('Could not create the product. Please check your connection.')
+    } finally {
+      setCreateSaving(false)
     }
-    setItems(prev => prev.map(i => i.id === editOriginalId ? updated : i))
-    setShowEditDrawer(false)
-    setEditingItem(null)
-  }
-
-  function handleStockArrival() {
-    if (!selectedItem) return
-    setItems(prev => prev.map(i => {
-      if (i.id !== selectedItem.id) return i
-      return {
-        ...i,
-        current_stock: i.current_stock + arrivalQty,
-        ...(arrivalCostPrice > 0 ? { cost_price: arrivalCostPrice } : {}),
-      }
-    }))
-    setShowStockModal(false)
-    setSelectedItem(null)
-  }
-
-  function handleWaste() {
-    if (!selectedItem) return
-    setItems(prev => prev.map(i => {
-      if (i.id !== selectedItem.id) return i
-      return {
-        ...i,
-        current_stock: Math.max(0, i.current_stock - wasteQty),
-      }
-    }))
-    setShowWasteModal(false)
-    setSelectedItem(null)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -821,32 +735,23 @@ export default function InventoryPage() {
     <div>
       {/* Page Header */}
       <div className={styles.headerRow}>
-        <h1>Stocks</h1>
+        <h1>Products</h1>
         <div className={styles.headerActions}>
           <button
             className="btn btn--primary btn--sm"
             onClick={() => setShowAddDrawer(true)}
             style={{ height: '32px' }}
           >
-            <Plus size={18} /> Add Item
+            <Plus size={18} /> Add Product
           </button>
         </div>
-      </div>
-
-      {/* Inventory Worth Banner */}
-      <div className={styles.worthBanner}>
-        <span className="text-secondary text-sm">Total stock worth</span>
-        <span className={styles.worthValue}>{formatINR(inventoryWorth)}</span>
-        {lowStockCount > 0 && (
-          <span className="badge badge--warning">{lowStockCount} low stock</span>
-        )}
       </div>
 
       {/* Freemium Banner */}
       {items.length >= 45 && (
         <div className="upgrade-banner">
           <p className="upgrade-banner__text">
-            {items.length} of 50 inventory items used on free plan.
+            {items.length} of 50 products used on free plan.
           </p>
           <Link href="/dashboard/settings/billing" className="btn btn--primary btn--sm">
             Upgrade
@@ -859,7 +764,7 @@ export default function InventoryPage() {
         <div className={styles.searchWrap}>
           <input
             className="form-input"
-            placeholder="Search items..."
+            placeholder="Search products..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -901,26 +806,22 @@ export default function InventoryPage() {
       {(activeFilterTypes.length > 0 || search) && (
         <div className={styles.resultSummaryRow}>
           <span className={styles.resultSummary}>
-            <strong>{filteredItems.length}</strong> {filteredItems.length === 1 ? 'item' : 'items'}
+            <strong>{filteredItems.length}</strong> {filteredItems.length === 1 ? 'product' : 'products'}
             <span className={styles.resultSummarySep}>•</span>
           </span>
 
           {/* Active filter chips */}
           {activeFilterTypes.map(key => {
             const isOpen = openValueDropdown === key
-            const selectedValues = key === 'category' ? categoryFilters : statusFilters
-            const label = key === 'category' ? 'Category' : 'Status'
+            const selectedValues = categoryFilters
+            const label = 'Category'
             const options: readonly { value: string; label: string }[] =
-              key === 'category'
-                ? tableCategories.map(c => ({ value: c, label: c }))
-                : STATUS_OPTIONS
+              tableCategories.map(c => ({ value: c, label: c }))
 
             const displayText =
               selectedValues.length === 0 ? 'Any'
                 : selectedValues.length === 1
-                  ? (key === 'status'
-                    ? STATUS_OPTIONS.find(o => o.value === selectedValues[0])?.label ?? selectedValues[0]
-                    : selectedValues[0])
+                  ? selectedValues[0]
                   : `${selectedValues.length} selected`
 
             return (
@@ -959,15 +860,9 @@ export default function InventoryPage() {
                             key={opt.value}
                             className={`${styles.valueOption}${checked ? ` ${styles.valueOptionChecked}` : ''}`}
                             onClick={() => {
-                              if (key === 'category') {
-                                setCategoryFilters(prev =>
-                                  prev.includes(opt.value) ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
-                                )
-                              } else {
-                                setStatusFilters(prev =>
-                                  prev.includes(opt.value) ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
-                                )
-                              }
+                              setCategoryFilters(prev =>
+                                prev.includes(opt.value) ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
+                              )
                             }}
                           >
                             <span className={styles.valueOptionCheck}>
@@ -1030,20 +925,30 @@ export default function InventoryPage() {
 
       {/* Table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {filteredItems.length === 0 ? (
+        {itemsLoadError ? (
           <div className="empty-state">
-            <p className="empty-state__title">No items found</p>
+            <p className="empty-state__title">Could not load products</p>
+            <p className="empty-state__desc">{itemsLoadError}</p>
+            <button className="btn btn--primary btn--sm" onClick={loadItems}>Retry</button>
+          </div>
+        ) : itemsLoading ? (
+          <div className="empty-state">
+            <p className="empty-state__desc">Loading products…</p>
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="empty-state">
+            <p className="empty-state__title">No products found</p>
             <p className="empty-state__desc">
-              {search || categoryFilters.length > 0 || statusFilters.length > 0
+              {search || categoryFilters.length > 0
                 ? 'Try adjusting your filters'
-                : 'Add your first inventory item to get started'}
+                : 'Add your first product to get started'}
             </p>
-            {!search && categoryFilters.length === 0 && statusFilters.length === 0 && (
+            {!search && categoryFilters.length === 0 && (
               <button
                 className="btn btn--primary btn--sm"
                 onClick={() => setShowAddDrawer(true)}
               >
-                Add Item
+                Add Product
               </button>
             )}
           </div>
@@ -1051,96 +956,50 @@ export default function InventoryPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className={styles.itemNameCol}>Item Name</th>
-                <th className={styles.itemIdCol}>Item ID</th>
+                <th className={styles.itemNameCol}>Product Name</th>
+                <th className={styles.itemIdCol}>Product ID</th>
                 <th className={styles.categoryCol}>Category</th>
-                <th className={styles.stockCol}>Current Stock</th>
-                <th className={styles.statusCol}>Status</th>
+                <th className={styles.stockCol}>Unit</th>
                 <th className={styles.actionsHeader}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredItems.map(item => {
-                const isOutOfStock = item.availability_status === 'discontinued' || item.availability_status === 'out_of_stock'
-                const isLowStock = !isOutOfStock && item.current_stock <= item.par_stock
-
-                return (
-                  <tr
-                    key={item.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => router.push(`/dashboard/inventory/${item.id}`)}
-                  >
-                    <td>{item.name}</td>
-                    <td>
-                      <div className={styles.itemIdCell}>
-                        <span className={styles.itemIdCode}>{item.id}</span>
-                        {item.variants && item.variants.length > 0 ? (
-                          <span className={styles.variantIdMore}>
-                            +{item.variants.length} variants
-                          </span>
-                        ) : item.attributes && item.attributes.length > 0 && (
-                          <span className={styles.variantIdMore}>
-                            {item.attributes.length} tags
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge badge--neutral">{item.category}</span>
-                    </td>
-                    <td>{item.current_stock} {item.unit}</td>
-                    <td>
-                      <span className={`badge badge--${isOutOfStock ? 'danger' : isLowStock ? 'warning' : 'success'}`}>
-                        {isOutOfStock ? 'Out of Stock' : isLowStock ? 'Low Stock' : 'In Stock'}
-                      </span>
-                    </td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <div className={styles.actions}>
-                        <button
-                          className="btn btn--ghost btn--sm"
-                          title="Edit item"
-                          onClick={() => {
-                            setEditingItem(item)
-                            setEditOriginalId(item.id)
-                            setEditSubcategory('')
-                            setEditTaxes([])
-                            setEditTaxInclusive(true)
-                            setEditHasVariation(!!item.variants && item.variants.length > 0)
-                            setEditVariants(item.variants && item.variants.length > 0
-                              ? item.variants.map(v => ({
-                                id: v.id,
-                                code: v.code,
-                                attributes: [...v.attributes],
-                                quantity: v.quantity
-                              }))
-                              : [
-                                makeEmptyVariant(0, item.attributes?.length ?? 0),
-                                makeEmptyVariant(1, item.attributes?.length ?? 0),
-                              ])
-                            setEditAddingAttr(false)
-                            setEditNewAttrInput('')
-                            setShowEditDrawer(true)
-                          }}
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          className="btn btn--ghost btn--sm"
-                          title="Record waste"
-                          onClick={() => {
-                            setSelectedItem(item)
-                            setWasteQty(0)
-                            setWasteReason('')
-                            setShowWasteModal(true)
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
+              {filteredItems.map(item => (
+                <tr
+                  key={item.id}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => router.push(`/dashboard/inventory/${item.id}`)}
+                >
+                  <td>{item.name}</td>
+                  <td>
+                    <div className={styles.itemIdCell}>
+                      <span className={styles.itemIdCode}>{item.id}</span>
+                      {item.attribute_names.length > 0 && (
+                        <span className={styles.variantIdMore}>
+                          {item.attribute_names.length} attribute{item.attribute_names.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    {item.category_name
+                      ? <span className="badge badge--neutral">{item.category_name}</span>
+                      : <span className="text-tertiary">—</span>}
+                  </td>
+                  <td>{item.unit_name}</td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div className={styles.actions}>
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        title="Edit product"
+                        onClick={() => handleOpenEdit(item)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
@@ -1155,7 +1014,7 @@ export default function InventoryPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="drawer__header">
-              <h3 className="drawer__title">Add Stock Item</h3>
+              <h3 className="drawer__title">Add Product</h3>
               <button className="drawer__close" onClick={handleCloseDrawer}><X size={18} /></button>
             </div>
 
@@ -1164,7 +1023,7 @@ export default function InventoryPage() {
 
                 {/* ── 1. Item Name with autocomplete ── */}
                 <div className="form-group">
-                  <label className="form-label form-label--required">Item Name</label>
+                  <label className="form-label form-label--required">Product Name</label>
                   <div className={styles.autocompleteWrap}>
                     <input
                       className="form-input"
@@ -1189,14 +1048,14 @@ export default function InventoryPage() {
                             onMouseDown={() => handleSelectSuggestion(item)}
                           >
                             <span>{item.name}</span>
-                            <span className="text-secondary text-sm">{item.category}</span>
+                            <span className="text-secondary text-sm">{item.category_name}</span>
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
                   <span className="form-hint">
-                    Name must be unique. Select a suggestion to pre-fill from an existing item.
+                    Name must be unique. Select a suggestion to pre-fill from an existing product.
                   </span>
                 </div>
 
@@ -1303,7 +1162,7 @@ export default function InventoryPage() {
                   )}
 
                   <span className="form-hint">
-                    Attributes describe item characteristics (e.g. Organic, Premium, Seasonal).
+                    Attributes define what varies between this product&apos;s variants (e.g. Size, Color) — added in a later step.
                   </span>
                 </div>
 
@@ -1369,63 +1228,12 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                {/* ── 6. Image ── */}
-                <div className="form-group">
-                  <label className="form-label">
-                    Image <span className="text-tertiary font-normal">(Optional)</span>
-                  </label>
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={handleImageChange}
-                  />
-                  {imagePreview ? (
-                    <div className={styles.imagePreviewWrap}>
-                      <img
-                        src={imagePreview}
-                        alt="Item preview"
-                        className={styles.imagePreviewImg}
-                      />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                        <span className="text-sm text-secondary">Image selected</span>
-                        <div className={styles.headerActions}>
-                          <button
-                            type="button"
-                            className="btn btn--ghost btn--sm"
-                            onClick={() => imageInputRef.current?.click()}
-                          >
-                            Change
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--ghost btn--sm"
-                            onClick={handleRemoveImage}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.imageUploadBtn}
-                      onClick={() => imageInputRef.current?.click()}
-                    >
-                      <Upload size={20} />
-                      <span>Click to upload image</span>
-                    </button>
-                  )}
-                </div>
-
                 {/* ── Categorization ── */}
                 <div className={styles.sectionLabel}>Categorization</div>
 
-                {/* ── 7. Category ── */}
+                {/* ── 4. Category ── */}
                 <div className="form-group">
-                  <label className="form-label form-label--required">Category</label>
+                  <label className="form-label">Category</label>
                   {!addingCategory ? (
                     <CustomSelect
                       value={form.category}
@@ -1487,7 +1295,7 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                {/* ── 8. Subcategory ── */}
+                {/* ── 5. Subcategory ── */}
                 <div className="form-group">
                   <label className="form-label">
                     Subcategory <span className="text-tertiary font-normal">(Optional)</span>
@@ -1550,93 +1358,7 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                {/* ── Taxes ── */}
-                <div className="form-group">
-                  <div className={styles.fieldHeaderRow}>
-                    <label className="form-label">
-                      Taxes <span className="text-tertiary font-normal">(Optional)</span>
-                    </label>
-                    <label className={styles.toggleLabel}>
-                      <span className="text-sm text-secondary">
-                        {form.tax_inclusive ? 'Inclusive' : 'Exclusive'}
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={form.tax_inclusive}
-                        className={`toggle ${form.tax_inclusive ? '' : 'toggle--off'}`}
-                        onClick={() =>
-                          setForm(prev => ({ ...prev, tax_inclusive: !prev.tax_inclusive }))
-                        }
-                      >
-                        <span className="toggle__dot" />
-                      </button>
-                    </label>
-                  </div>
-
-                  {form.taxes.length > 0 && (
-                    <div className={styles.taxSection}>
-                      {form.taxes.map((tax, i) => (
-                        <div key={tax.id} className={styles.taxRow}>
-                          <input
-                            className="form-input"
-                            placeholder="Tax name (e.g. GST)"
-                            autoFocus={tax.id === lastAddedTaxId}
-                            value={tax.name}
-                            onChange={e => updateTax(i, 'name', e.target.value)}
-                            style={{ flex: 1 }}
-                          />
-                          <div className={styles.taxPercentInput}>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              placeholder="0"
-                              value={tax.percentage || ''}
-                              onChange={e => updateTax(i, 'percentage', Number(e.target.value))}
-                            />
-                            <span className={styles.taxPercentSuffix}>%</span>
-                          </div>
-                          <button
-                            type="button"
-                            className="btn btn--ghost btn--sm"
-                            style={{ flexShrink: 0 }}
-                            onClick={() =>
-                              setForm(prev => ({
-                                ...prev,
-                                taxes: prev.taxes.filter((_, j) => j !== i),
-                              }))
-                            }
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    className={styles.addAttrBtn}
-                    style={{ marginTop: form.taxes.length > 0 ? 'var(--space-2)' : undefined }}
-                    onClick={() => {
-                      const newId = `${Date.now()}-${Math.random()}`
-                      setLastAddedTaxId(newId)
-                      setForm(prev => ({
-                        ...prev,
-                        taxes: [...prev.taxes, { id: newId, name: '', percentage: 0 }],
-                      }))
-                    }}
-                  >
-                    + Add tax
-                  </button>
-
-                  <span className="form-hint">
-                    {form.tax_inclusive ? 'Tax included in item price.' : 'Tax charged on top of item price.'}
-                  </span>
-                </div>
-
-                {/* ── 11. Expiry toggle ── */}
+                {/* ── 6. Expiry toggle ── */}
                 <div className="form-group">
                   <div className={styles.fieldHeaderRow}>
                     <label className="form-label">Perishable — has expiry date</label>
@@ -1680,20 +1402,24 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                {/* ── 13. Description ── */}
+                {/* ── 7. Description ── */}
                 <div className="form-group">
                   <label className="form-label">
                     Description <span className="text-tertiary font-normal">(Optional)</span>
                   </label>
                   <textarea
                     className="form-textarea"
-                    placeholder="Additional notes or description about this item..."
+                    placeholder="Additional notes or description about this product..."
                     value={form.description}
                     onChange={e =>
                       setForm(prev => ({ ...prev, description: e.target.value }))
                     }
                   />
                 </div>
+
+                {createError && (
+                  <div className={styles.errorMsg}>{createError}</div>
+                )}
 
               </div>{/* drawerForm */}
             </div>{/* drawerScroll */}
@@ -1705,65 +1431,55 @@ export default function InventoryPage() {
               <button
                 className="btn btn--primary"
                 onClick={handleSaveItem}
-                disabled={!form.name.trim() || !form.category.trim()}
+                disabled={!form.name.trim() || !form.unit || createSaving}
               >
-                Save Item
+                {createSaving ? <span className="spinner--sm" /> : 'Save Product'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Edit Item Drawer ── */}
-      {showEditDrawer && editingItem && (
-        <div className="overlay" onClick={() => { setShowEditDrawer(false); setEditingItem(null) }}>
+      {/* ── Edit Item Drawer — UI only, not wired to a backend yet ── */}
+      {showEditDrawer && (
+        <div className="overlay" onClick={handleCloseEditDrawer}>
           <div
             className="drawer"
             style={{ width: '560px', overflow: 'hidden' }}
             onClick={e => e.stopPropagation()}
           >
             <div className="drawer__header">
-              <h3 className="drawer__title">Edit Stock Item</h3>
-              <button className="drawer__close" onClick={() => { setShowEditDrawer(false); setEditingItem(null) }}>
-                <X size={18} />
-              </button>
+              <h3 className="drawer__title">Edit Product</h3>
+              <button className="drawer__close" onClick={handleCloseEditDrawer}><X size={18} /></button>
             </div>
 
             <div className={styles.drawerScroll}>
               <div className={styles.drawerForm}>
 
-                {/* 1. Item Name */}
+                {/* 1. Product Name */}
                 <div className="form-group">
-                  <label className="form-label form-label--required">Item Name</label>
+                  <label className="form-label form-label--required">Product Name</label>
                   <input
                     className="form-input"
                     type="text"
-                    value={editingItem.name}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, name: e.target.value } : null)}
+                    value={editForm.name}
+                    onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
                   />
                 </div>
 
                 {/* 2. Attributes */}
                 <div className="form-group">
                   <label className="form-label">Attributes</label>
-                  {(editingItem.attributes || []).length > 0 && (
+
+                  {editForm.selected_attributes.length > 0 && (
                     <div className={styles.attrChipsRow}>
-                      {(editingItem.attributes || []).map((attr, idx) => (
-                        <span key={`${attr}-${idx}`} className={styles.attrChip}>
+                      {editForm.selected_attributes.map(attr => (
+                        <span key={attr} className={styles.attrChip}>
                           {attr}
                           <button
                             type="button"
                             className={styles.attrChipRemove}
-                            onClick={() => {
-                              setEditingItem(prev => {
-                                if (!prev) return null
-                                return { ...prev, attributes: (prev.attributes || []).filter((_, i) => i !== idx) }
-                              })
-                              setEditVariants(prev => prev.map(v => ({
-                                ...v,
-                                attributes: v.attributes.filter((_, i) => i !== idx),
-                              })))
-                            }}
+                            onClick={() => removeEditSelectedAttribute(attr)}
                             title={`Remove ${attr}`}
                           >
                             <X size={12} />
@@ -1772,6 +1488,7 @@ export default function InventoryPage() {
                       ))}
                     </div>
                   )}
+
                   {editAddingAttr ? (
                     <div className={styles.attrAddRow}>
                       <div className={styles.attrInputWrap}>
@@ -1787,7 +1504,6 @@ export default function InventoryPage() {
                           }}
                           disabled={attributeSaving}
                         />
-                        {/* Suggestions from the business-wide attribute list */}
                         {editAttrSuggestions.length > 0 && (
                           <div className={styles.attrSuggestions}>
                             {editAttrSuggestions.map(attr => (
@@ -1796,7 +1512,7 @@ export default function InventoryPage() {
                                 type="button"
                                 className={styles.attrSuggestionItem}
                                 onMouseDown={() => {
-                                  addEditAttribute(attr)
+                                  addEditSelectedAttribute(attr)
                                   setEditNewAttrInput('')
                                   setEditAddingAttr(false)
                                 }}
@@ -1810,6 +1526,7 @@ export default function InventoryPage() {
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
+                        title="Add attribute"
                         onClick={() => handleCreateEditAttribute(editNewAttrInput)}
                         disabled={attributeSaving}
                       >
@@ -1818,6 +1535,7 @@ export default function InventoryPage() {
                       <button
                         type="button"
                         className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
+                        title="Cancel"
                         onClick={() => { setEditAddingAttr(false); setEditNewAttrInput('') }}
                         disabled={attributeSaving}
                       >
@@ -1834,35 +1552,27 @@ export default function InventoryPage() {
                       + Add attribute
                     </button>
                   )}
-                  {attributesLoadError && (
-                    <div className={styles.errorMsg}>
-                      {attributesLoadError}{' '}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadAttributes}>Retry</button>
-                    </div>
-                  )}
+
                   <span className="form-hint">
-                    Attributes define what varies between variants (e.g. Size, Color).
+                    Attributes define what varies between this product&apos;s variants (e.g. Size, Color).
                   </span>
                 </div>
 
-                {/* 5. Unit */}
+                {/* 3. Unit */}
                 <div className="form-group">
                   <label className="form-label form-label--required">Unit</label>
-                  {!addingEditUnit ? (
+                  {!editAddingUnit ? (
                     <CustomSelect
-                      value={editingItem.unit}
+                      value={editForm.unit}
                       disabled={unitsLoading}
                       placeholder={unitsLoading ? 'Loading units…' : 'Select unit'}
                       options={[
                         ...allUnits.map(u => ({ value: u, label: u })),
-                        ...(!allUnits.includes(editingItem.unit) && editingItem.unit
-                          ? [{ value: editingItem.unit, label: editingItem.unit }]
-                          : []),
                         { value: '__new__', label: '+ Create new unit', isAction: true },
                       ]}
                       onChange={v => {
-                        if (v === '__new__') setAddingEditUnit(true)
-                        else setEditingItem(prev => prev ? { ...prev, unit: v as StockUnit } : null)
+                        if (v === '__new__') setEditAddingUnit(true)
+                        else setEditForm(prev => ({ ...prev, unit: v }))
                       }}
                     />
                   ) : (
@@ -1875,22 +1585,16 @@ export default function InventoryPage() {
                         onChange={e => setNewEditUnitInput(e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'Enter') handleAddEditUnit()
-                          if (e.key === 'Escape') setAddingEditUnit(false)
+                          if (e.key === 'Escape') setEditAddingUnit(false)
                         }}
                         disabled={unitSaving}
                       />
                       <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditUnit} disabled={unitSaving}>
                         {unitSaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditUnit(false)} disabled={unitSaving}>
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingUnit(false)} disabled={unitSaving}>
                         <X size={15} />
                       </button>
-                    </div>
-                  )}
-                  {unitsLoadError && (
-                    <div className={styles.errorMsg}>
-                      {unitsLoadError}{' '}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadUnits}>Retry</button>
                     </div>
                   )}
                 </div>
@@ -1898,29 +1602,23 @@ export default function InventoryPage() {
                 {/* Categorization */}
                 <div className={styles.sectionLabel}>Categorization</div>
 
-                {/* 5. Category */}
+                {/* 4. Category */}
                 <div className="form-group">
-                  <label className="form-label form-label--required">Category</label>
-                  {!addingEditCategory ? (
+                  <label className="form-label">Category</label>
+                  {!editAddingCategory ? (
                     <CustomSelect
-                      value={editingItem.category}
+                      value={editForm.category}
                       disabled={categoriesLoading}
                       placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
                       options={[
                         ...allCategories.map(c => ({ value: c, label: c })),
-                        ...(!allCategories.includes(editingItem.category) && editingItem.category
-                          ? [{ value: editingItem.category, label: editingItem.category }]
-                          : []),
                         { value: '__new__', label: '+ Create new category', isAction: true },
                       ]}
                       onChange={v => {
                         if (v === '__new__') {
-                          setAddingEditCategory(true)
+                          setEditAddingCategory(true)
                         } else {
-                          setEditingItem(prev => prev ? { ...prev, category: v } : null)
-                          // Picking a different parent invalidates whatever
-                          // subcategory was selected — it belonged to the old one.
-                          setEditSubcategory('')
+                          setEditForm(prev => ({ ...prev, category: v, subcategory: '' }))
                         }
                       }}
                     />
@@ -1934,48 +1632,42 @@ export default function InventoryPage() {
                         onChange={e => setNewEditCategoryInput(e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'Enter') handleAddEditCategory()
-                          if (e.key === 'Escape') setAddingEditCategory(false)
+                          if (e.key === 'Escape') setEditAddingCategory(false)
                         }}
                         disabled={categorySaving}
                       />
                       <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditCategory} disabled={categorySaving}>
                         {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditCategory(false)} disabled={categorySaving}>
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingCategory(false)} disabled={categorySaving}>
                         <X size={15} />
                       </button>
                     </div>
                   )}
-                  {categoriesLoadError && (
-                    <div className={styles.errorMsg}>
-                      {categoriesLoadError}{' '}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadCategories}>Retry</button>
-                    </div>
-                  )}
                 </div>
 
-                {/* 6. Subcategory */}
+                {/* 5. Subcategory */}
                 <div className="form-group">
                   <label className="form-label">
                     Subcategory <span className="text-tertiary font-normal">(Optional)</span>
                   </label>
-                  {!addingEditSubcategory ? (
+                  {!editAddingSubcategory ? (
                     <CustomSelect
-                      value={editSubcategory}
-                      placeholder={editingItem.category ? 'None' : 'Select a category first'}
-                      disabled={!editingItem.category}
+                      value={editForm.subcategory}
+                      placeholder={editForm.category ? 'None' : 'Select a category first'}
+                      disabled={!editForm.category}
                       options={
-                        editingItem.category
+                        editForm.category
                           ? [
                               { value: '', label: 'None' },
-                              ...getSubcategoriesFor(editingItem.category).map(s => ({ value: s.name, label: s.name })),
+                              ...getSubcategoriesFor(editForm.category).map(s => ({ value: s.name, label: s.name })),
                               { value: '__new__', label: '+ Create new subcategory', isAction: true },
                             ]
                           : []
                       }
                       onChange={v => {
-                        if (v === '__new__') setAddingEditSubcategory(true)
-                        else setEditSubcategory(v)
+                        if (v === '__new__') setEditAddingSubcategory(true)
+                        else setEditForm(prev => ({ ...prev, subcategory: v }))
                       }}
                     />
                   ) : (
@@ -1988,230 +1680,118 @@ export default function InventoryPage() {
                         onChange={e => setNewEditSubcategoryInput(e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'Enter') handleAddEditSubcategory()
-                          if (e.key === 'Escape') setAddingEditSubcategory(false)
+                          if (e.key === 'Escape') setEditAddingSubcategory(false)
                         }}
                         disabled={subcategorySaving}
                       />
                       <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditSubcategory} disabled={subcategorySaving}>
                         {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
                       </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setAddingEditSubcategory(false)} disabled={subcategorySaving}>
+                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingSubcategory(false)} disabled={subcategorySaving}>
                         <X size={15} />
                       </button>
                     </div>
                   )}
                 </div>
 
-                {/* 9. Taxes */}
+                {/* 6. Expiry toggle */}
                 <div className="form-group">
                   <div className={styles.fieldHeaderRow}>
-                    <label className="form-label">
-                      Taxes <span className="text-tertiary font-normal">(Optional)</span>
-                    </label>
-                    <label className={styles.toggleLabel}>
-                      <span className="text-sm text-secondary">
-                        {editTaxInclusive ? 'Inclusive' : 'Exclusive'}
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={editTaxInclusive}
-                        className={`toggle ${editTaxInclusive ? '' : 'toggle--off'}`}
-                        onClick={() => setEditTaxInclusive(v => !v)}
-                      >
-                        <span className="toggle__dot" />
-                      </button>
-                    </label>
+                    <label className="form-label">Perishable — has expiry date</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={editForm.has_expiry}
+                      className={`toggle ${editForm.has_expiry ? '' : 'toggle--off'}`}
+                      onClick={() => setEditForm(prev => ({ ...prev, has_expiry: !prev.has_expiry }))}
+                    >
+                      <span className="toggle__dot" />
+                    </button>
                   </div>
-
-                  {editTaxes.length > 0 && (
-                    <div className={styles.taxSection}>
-                      {editTaxes.map((tax, i) => (
-                        <div key={tax.id} className={styles.taxRow}>
-                          <input
-                            className="form-input"
-                            placeholder="Tax name (e.g. GST)"
-                            autoFocus={tax.id === lastAddedEditTaxId}
-                            value={tax.name}
-                            onChange={e =>
-                              setEditTaxes(prev =>
-                                prev.map((t, j) => j === i ? { ...t, name: e.target.value } : t)
-                              )
-                            }
-                            style={{ flex: 1 }}
-                          />
-                          <div className={styles.taxPercentInput}>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              placeholder="0"
-                              value={tax.percentage || ''}
-                              onChange={e =>
-                                setEditTaxes(prev =>
-                                  prev.map((t, j) => j === i ? { ...t, percentage: Number(e.target.value) } : t)
-                                )
-                              }
-                            />
-                            <span className={styles.taxPercentSuffix}>%</span>
-                          </div>
-                          <button
-                            type="button"
-                            className="btn btn--ghost btn--sm"
-                            style={{ flexShrink: 0 }}
-                            onClick={() =>
-                              setEditTaxes(prev => prev.filter((_, j) => j !== i))
-                            }
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
+                  {editForm.has_expiry && (
+                    <div className="form-group" style={{ marginTop: 'var(--space-2)' }}>
+                      <label className="form-label">Expires within (days)</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 30"
+                        value={editForm.expires_within_days}
+                        onChange={e =>
+                          setEditForm(prev => ({
+                            ...prev,
+                            expires_within_days: e.target.value === '' ? '' : Number(e.target.value),
+                          }))
+                        }
+                      />
                     </div>
                   )}
-
-                  <button
-                    type="button"
-                    className={styles.addAttrBtn}
-                    style={{ marginTop: editTaxes.length > 0 ? 'var(--space-2)' : undefined }}
-                    onClick={() => {
-                      const newId = `${Date.now()}-${Math.random()}`
-                      setLastAddedEditTaxId(newId)
-                      setEditTaxes(prev => [...prev, { id: newId, name: '', percentage: 0 }])
-                    }}
-                  >
-                    + Add tax
-                  </button>
-
-                  <span className="form-hint">
-                    {editTaxInclusive ? 'Tax included in item price.' : 'Tax charged on top of item price.'}
-                  </span>
                 </div>
 
-                {/* 11. Availability Status — toggle */}
-                <div className="form-group">
-                  <div className={styles.fieldHeaderRow}>
-                    <label className="form-label">Active / Available</label>
-                    <label className={styles.toggleLabel}>
-                      <span className="text-sm text-secondary">
-                        {editingItem.availability_status === 'active' ? 'Active' : 'Inactive'}
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={editingItem.availability_status === 'active'}
-                        className={`toggle ${editingItem.availability_status === 'active' ? '' : 'toggle--off'}`}
-                        onClick={() => setEditingItem(prev => prev ? {
-                          ...prev,
-                          availability_status: prev.availability_status === 'active' ? 'out_of_stock' : 'active',
-                        } : null)}
-                      >
-                        <span className="toggle__dot" />
-                      </button>
-                    </label>
-                  </div>
-                </div>
-
-                {/* 12. Notes */}
+                {/* 7. Description */}
                 <div className="form-group">
                   <label className="form-label">
-                    Notes <span className="text-tertiary font-normal">(Optional)</span>
+                    Description <span className="text-tertiary font-normal">(Optional)</span>
                   </label>
                   <textarea
                     className="form-textarea"
-                    value={editingItem.notes ?? ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, notes: e.target.value } : null)}
+                    value={editForm.description}
+                    onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
                   />
                 </div>
+
+                {editError && (
+                  <div className={styles.errorMsg}>{editError}</div>
+                )}
 
               </div>
             </div>
 
             <div className={`drawer__footer ${styles.stickyFooter}`}>
-              <button className="btn btn--ghost" onClick={() => { setShowEditDrawer(false); setEditingItem(null) }}>
+              <button className="btn btn--ghost" onClick={handleCloseEditDrawer}>
                 Cancel
               </button>
               <button
                 className="btn btn--primary"
-                onClick={handleSaveEdit}
-                disabled={!editingItem.name.trim() || !editingItem.category.trim()}
+                onClick={() => handleSaveEdit(false)}
+                disabled={!editForm.name.trim() || !editForm.unit || editSaving}
               >
-                Save Changes
+                {editSaving ? <span className="spinner--sm" /> : 'Save Changes'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Waste Modal ── */}
-      {showWasteModal && (
-        <div className="modal-overlay" onClick={() => setShowWasteModal(false)}>
+      {/* ── Confirm attribute removal — shown when the server reports the
+          removed attribute(s) already have real variant data attached ── */}
+      {confirmAttrRemoval && (
+        <div className="modal-overlay" onClick={() => setConfirmAttrRemoval(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3 className="modal__title">Record Waste / Consumption</h3>
-
-            <div className={styles.modalItemRow}>
-              <span className="text-secondary text-sm">Item</span>
-              <span>{selectedItem?.name}</span>
-            </div>
-            <div className={styles.modalItemRow}>
-              <span className="text-secondary text-sm">Current Stock</span>
-              <span>{selectedItem?.current_stock} {selectedItem?.unit}</span>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label form-label--required">
-                Quantity Lost ({selectedItem?.unit})
-              </label>
-              <input
-                className="form-input"
-                type="number"
-                min="0"
-                max={selectedItem?.current_stock}
-                value={wasteQty}
-                onChange={e => setWasteQty(Number(e.target.value))}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Reason</label>
-              <select
-                className="form-select"
-                value={wasteReason}
-                onChange={e => setWasteReason(e.target.value)}
-              >
-                <option value="spoilage">Spoilage / Damage</option>
-                <option value="consumption">Internal Consumption</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-
-            {wasteQty > 0 && (
-              <div className={styles.modalPreview}>
-                <div className="alert alert--warning">
-                  <div className="alert__dot"></div>
-                  <div>
-                    <p className="alert__title">After this deduction</p>
-                    <p className="alert__body">
-                      Stock will be: {(selectedItem?.current_stock || 0) - wasteQty} {selectedItem?.unit}
-                      {wasteQty > (selectedItem?.current_stock || 0) && (
-                        <span className="text-danger"> — Cannot exceed current stock</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
+            <h3 className="modal__title">Remove attributes with variant data?</h3>
+            <div className="alert alert--warning">
+              <div className="alert__dot"></div>
+              <div>
+                <p className="alert__title">This can&apos;t be undone</p>
+                <p className="alert__body">
+                  {confirmAttrRemoval.join(', ')} {confirmAttrRemoval.length === 1 ? 'has' : 'have'} values
+                  saved on existing variants. Removing {confirmAttrRemoval.length === 1 ? 'it' : 'them'} from
+                  this product will permanently delete those saved values.
+                </p>
               </div>
-            )}
-
+            </div>
             <div className="modal__actions">
-              <button className="btn btn--ghost btn--sm" onClick={() => setShowWasteModal(false)}>
+              <button className="btn btn--ghost btn--sm" onClick={() => setConfirmAttrRemoval(null)}>
                 Cancel
               </button>
               <button
                 className="btn btn--danger btn--sm"
-                disabled={wasteQty > (selectedItem?.current_stock || 0)}
-                onClick={handleWaste}
+                onClick={() => {
+                  setConfirmAttrRemoval(null)
+                  handleSaveEdit(true)
+                }}
               >
-                Confirm Deduction
+                Remove Anyway
               </button>
             </div>
           </div>

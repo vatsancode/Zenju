@@ -14,8 +14,7 @@ import inv from '../inventory.module.css'
 type Tab = 'variants' | 'description' | 'images'
 
 type DetailVariant = InventoryVariant & {
-  par_stock: number
-  purchase_price: number
+  name: string
   selling_price: number
 }
 
@@ -27,6 +26,8 @@ type EditVariantRow = {
 }
 
 type TaxLine = { id: string; name: string; percentage: number }
+
+type VariantRowDraft = { name: string; attributes: string[]; selling_price: number }
 
 type ImageFile = {
   id: string
@@ -66,8 +67,7 @@ export default function InventoryDetailPage() {
     if (!initItem?.variants?.length) return []
     return initItem.variants.map(v => ({
       ...v,
-      par_stock: Math.round(initItem.par_stock / initItem.variants!.length),
-      purchase_price: initItem.cost_price,
+      name: v.name ?? '',
       selling_price: initItem.mrp,
     }))
   })
@@ -87,6 +87,10 @@ export default function InventoryDetailPage() {
   })
   const [viewingImage, setViewingImage] = useState<ImageFile | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Row edit state (variants tab) ──────────────────────────────────────────
+  const [editingRowId, setEditingRowId] = useState<string | null>(null)
+  const [rowDraft, setRowDraft] = useState<VariantRowDraft | null>(null)
 
   // ── Attribute toolbar state (variants tab) ─────────────────────────────────
   const [addingAttrInline, setAddingAttrInline] = useState(false)
@@ -159,23 +163,56 @@ export default function InventoryDetailPage() {
 
   // ── Handlers: variants tab ─────────────────────────────────────────────────
 
-  function handleVariantChange(index: number, field: keyof DetailVariant, value: string | number) {
-    setVariants(prev => prev.map((v, i) =>
-      i === index ? { ...v, [field]: typeof value === 'string' ? value : Number(value) } : v
-    ))
-  }
-
   function handleAddVariantRow() {
     const attrCount = (item?.attributes || []).length
     setVariants(prev => [...prev, {
       id: `new-${Date.now()}`,
       code: '',
+      name: '',
       attributes: Array(attrCount).fill(''),
       quantity: 0,
-      par_stock: 0,
-      purchase_price: item?.cost_price ?? 0,
       selling_price: item?.mrp ?? 0,
     }])
+  }
+
+  function startEditRow(row: DetailVariant) {
+    setEditingRowId(row.id)
+    setRowDraft({ name: row.name, attributes: [...row.attributes], selling_price: row.selling_price })
+  }
+
+  function cancelEditRow() {
+    setEditingRowId(null)
+    setRowDraft(null)
+  }
+
+  function saveEditRow(index: number) {
+    if (!rowDraft) return
+    setVariants(prev => prev.map((v, i) => (i === index ? { ...v, ...rowDraft } : v)))
+    setEditingRowId(null)
+    setRowDraft(null)
+  }
+
+  // Single click navigates to the variant detail page; double click edits inline.
+  // The single-click action is delayed so a second click can cancel it in time.
+  const rowClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => { if (rowClickTimerRef.current) clearTimeout(rowClickTimerRef.current) }
+  }, [])
+
+  function handleRowClick(row: DetailVariant) {
+    if (rowClickTimerRef.current) clearTimeout(rowClickTimerRef.current)
+    rowClickTimerRef.current = setTimeout(() => {
+      router.push(`/dashboard/inventory/${item!.id}/variant/${row.id}`)
+    }, 220)
+  }
+
+  function handleRowDoubleClick(row: DetailVariant) {
+    if (rowClickTimerRef.current) {
+      clearTimeout(rowClickTimerRef.current)
+      rowClickTimerRef.current = null
+    }
+    if (editingRowId !== row.id) startEditRow(row)
   }
 
   // ── Handlers: attribute toolbar ─────────────────────────────────────────────
@@ -264,8 +301,7 @@ export default function InventoryDetailPage() {
     if (editHasVariation && updated.variants?.length) {
       setVariants(updated.variants.map(v => ({
         ...v,
-        par_stock: Math.round(updated.par_stock / updated.variants!.length),
-        purchase_price: updated.cost_price,
+        name: v.name ?? '',
         selling_price: updated.mrp,
       })))
     }
@@ -400,93 +436,128 @@ export default function InventoryDetailPage() {
                 <table className={styles.variantTableFull}>
                   <thead>
                     <tr>
-                      <th>Item Code</th>
+                      <th>Variant Name</th>
                       {(item.attributes || []).map(attr => <th key={attr}>{attr}</th>)}
                       <th className={styles.colQty}>Qty</th>
-                      <th className={styles.colParStock}>Par Stock</th>
-                      <th className={styles.colCost}>Cost / Unit</th>
                       <th className={styles.colSelling}>Selling / Unit</th>
                       <th className={styles.colActions} />
                     </tr>
                   </thead>
                   <tbody>
-                    {variants.map((row, ri) => (
-                      <tr key={row.id}>
-                        <td>
-                          <input
-                            className={`form-input ${styles.variantInput}`}
-                            value={row.code}
-                            placeholder="Code"
-                            style={{ fontFamily: "'SFMono-Regular', Consolas, monospace", fontSize: 'var(--text-xs)', fontWeight: 600, letterSpacing: '0.04em', maxWidth: 130 }}
-                            onChange={e => handleVariantChange(ri, 'code', e.target.value)}
-                          />
-                        </td>
-                        {(item.attributes || []).map((attr, ai) => (
-                          <td key={attr}>
-                            <input
-                              className={`form-input ${styles.variantInput}`}
-                              placeholder={attr}
-                              value={row.attributes[ai] ?? ''}
-                              onChange={e => {
-                                const val = e.target.value
-                                setVariants(prev => prev.map((v, i) =>
-                                  i === ri ? { ...v, attributes: v.attributes.map((a, j) => j === ai ? val : a) } : v
-                                ))
-                              }}
-                            />
+                    {variants.map((row, ri) => {
+                      const isEditing = editingRowId === row.id
+                      return (
+                        <tr
+                          key={row.id}
+                          className={isEditing ? styles.rowEditing : ''}
+                          onClick={() => { if (!isEditing) handleRowClick(row) }}
+                          onDoubleClick={() => handleRowDoubleClick(row)}
+                          style={{ cursor: isEditing ? 'default' : 'pointer' }}
+                        >
+                          <td>
+                            {isEditing ? (
+                              <input
+                                className={`form-input ${styles.variantInput}`}
+                                value={rowDraft?.name ?? ''}
+                                placeholder="Optional"
+                                autoFocus
+                                onChange={e => setRowDraft(d => d && { ...d, name: e.target.value })}
+                              />
+                            ) : (
+                              <span className={styles.variantDisplayText}>
+                                {row.name || <span className="text-tertiary">Unnamed</span>}
+                              </span>
+                            )}
                           </td>
-                        ))}
-                        <td className={styles.colQty}>
-                          <input
-                            className={styles.compactInput}
-                            type="number" min="0"
-                            value={row.quantity}
-                            onChange={e => handleVariantChange(ri, 'quantity', Number(e.target.value))}
-                          />
-                        </td>
-                        <td className={styles.colParStock}>
-                          <input
-                            className={styles.compactInput}
-                            type="number" min="0"
-                            value={row.par_stock}
-                            onChange={e => handleVariantChange(ri, 'par_stock', Number(e.target.value))}
-                          />
-                        </td>
-                        <td className={styles.colCost}>
-                          <div className={styles.compactCurrency}>
-                            <span className={styles.compactCurrencySymbol}>₹</span>
-                            <input className={styles.compactCurrencyInput} type="number" min="0" value={row.purchase_price}
-                              onChange={e => handleVariantChange(ri, 'purchase_price', Number(e.target.value))} />
-                          </div>
-                        </td>
-                        <td className={styles.colSelling}>
-                          <div className={styles.compactCurrency}>
-                            <span className={styles.compactCurrencySymbol}>₹</span>
-                            <input className={styles.compactCurrencyInput} type="number" min="0" value={row.selling_price}
-                              onChange={e => handleVariantChange(ri, 'selling_price', Number(e.target.value))} />
-                          </div>
-                        </td>
-                        <td className={styles.colActions}>
-                          <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                            <button
-                              className={styles.removeBtn}
-                              onClick={() => router.push(`/dashboard/inventory/${item.id}/variant/${row.id}`)}
-                              title="View variant details"
-                            >
-                              <Eye size={14} />
-                            </button>
-                            <button
-                              className={styles.removeBtn}
-                              onClick={() => setVariants(prev => prev.filter((_, i) => i !== ri))}
-                              disabled={variants.length <= 1}
-                              title="Remove variant"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          {(item.attributes || []).map((attr, ai) => (
+                            <td key={attr}>
+                              {isEditing ? (
+                                <input
+                                  className={`form-input ${styles.variantInput}`}
+                                  placeholder={attr}
+                                  value={rowDraft?.attributes[ai] ?? ''}
+                                  onChange={e => {
+                                    const val = e.target.value
+                                    setRowDraft(d => d && { ...d, attributes: d.attributes.map((a, j) => j === ai ? val : a) })
+                                  }}
+                                />
+                              ) : (
+                                <span className={styles.variantDisplayText}>
+                                  {row.attributes[ai] || <span className="text-tertiary">—</span>}
+                                </span>
+                              )}
+                            </td>
+                          ))}
+                          <td className={styles.colQty}>
+                            <span className={styles.qtyDisplayText} title="Quantity updates automatically from Purchases and Consumption">
+                              {row.quantity} {item.unit}
+                            </span>
+                          </td>
+                          <td className={styles.colSelling}>
+                            {isEditing ? (
+                              <div className={styles.compactCurrency}>
+                                <span className={styles.compactCurrencySymbol}>₹</span>
+                                <input
+                                  className={styles.compactCurrencyInput}
+                                  type="number" min="0"
+                                  value={rowDraft?.selling_price ?? 0}
+                                  onChange={e => setRowDraft(d => d && { ...d, selling_price: Number(e.target.value) })}
+                                />
+                              </div>
+                            ) : (
+                              <span className={styles.variantDisplayText}>{formatINR(row.selling_price)}</span>
+                            )}
+                          </td>
+                          <td className={styles.colActions} onClick={e => e.stopPropagation()}>
+                            <div className={styles.actionsRow}>
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    className={`${styles.removeBtn} ${styles.saveBtn}`}
+                                    onClick={() => saveEditRow(ri)}
+                                    title="Save changes"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button
+                                    className={styles.removeBtn}
+                                    onClick={cancelEditRow}
+                                    title="Cancel"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    className={styles.removeBtn}
+                                    onClick={() => startEditRow(row)}
+                                    title="Edit variant"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    className={styles.removeBtn}
+                                    onClick={() => router.push(`/dashboard/inventory/${item.id}/variant/${row.id}`)}
+                                    title="View variant details"
+                                  >
+                                    <Eye size={14} />
+                                  </button>
+                                  <button
+                                    className={styles.removeBtn}
+                                    onClick={() => setVariants(prev => prev.filter((_, i) => i !== ri))}
+                                    disabled={variants.length <= 1}
+                                    title="Remove variant"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

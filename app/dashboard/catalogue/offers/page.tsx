@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { mockCatalogueItems, formatINR } from '@/lib/mock-data'
+import { mockCatalogueItems, formatINR, formatDateShort } from '@/lib/mock-data'
 import { Plus, X, Search, ChevronDown, Pencil, ArrowLeft, Hash, Gift, SlidersHorizontal, Calendar } from 'lucide-react'
 import styles from './offers.module.css'
 
@@ -82,8 +82,7 @@ function benefitLabel(offer: Offer): string {
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return ''
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDateShort(dateStr + 'T00:00:00', { padDay: false })
 }
 
 function dateRangeLabel(offer: Offer): string {

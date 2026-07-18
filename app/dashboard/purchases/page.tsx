@@ -2,10 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, X, Check, Filter, ChevronDown, Eye } from 'lucide-react'
-import { mockSuppliers, mockPurchaseOrders, formatINR } from '@/lib/mock-data'
-import type { MockPurchaseOrder, MockPurchaseOrderItem, PurchaseOrderStatus } from '@/lib/mock-data'
-import CustomSelect from '@/components/ui/CustomSelect'
+import { Plus, Check, Filter, ChevronDown, Eye } from 'lucide-react'
+import { mockSuppliers, mockPurchaseOrders, formatINR, formatDateShort } from '@/lib/mock-data'
+import type { MockPurchaseOrder, PurchaseOrderStatus } from '@/lib/mock-data'
 import styles from './purchases.module.css'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -34,44 +33,17 @@ const STATUS_BADGE: Record<PurchaseOrderStatus, string> = {
   cancelled: 'danger',
 }
 
-function genPoNumber(existing: MockPurchaseOrder[]) {
-  const nums = existing.map(p => parseInt(p.po_number.split('-')[1] || '0', 10))
-  const next = (nums.length ? Math.max(...nums) : 113) + 1
-  return `PO-${String(next).padStart(4, '0')}`
-}
-
-type DraftItem = {
-  id: string
-  item_name: string
-  variant_label: string
-  unit: string
-  qty_ordered: number | ''
-  unit_cost: number | ''
-}
-
-function emptyDraftItem(): DraftItem {
-  return { id: `${Date.now()}-${Math.random()}`, item_name: '', variant_label: '', unit: 'KG', qty_ordered: '', unit_cost: '' }
-}
-
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function PurchasesPage() {
   const router = useRouter()
 
-  const [orders, setOrders] = useState<MockPurchaseOrder[]>(mockPurchaseOrders)
+  const [orders] = useState<MockPurchaseOrder[]>(mockPurchaseOrders)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatus[]>([])
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
 
-  const [showDrawer, setShowDrawer] = useState(false)
-  const [supplierId, setSupplierId] = useState('')
-  const [addingSupplier, setAddingSupplier] = useState(false)
-  const [newSupplierName, setNewSupplierName] = useState('')
-  const [suppliers, setSuppliers] = useState(mockSuppliers)
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [expectedDate, setExpectedDate] = useState('')
-  const [notes, setNotes] = useState('')
-  const [draftItems, setDraftItems] = useState<DraftItem[]>([emptyDraftItem()])
+  const [suppliers] = useState(mockSuppliers)
 
   const filteredOrders = orders.filter(po => {
     const matchesSearch = !search
@@ -86,89 +58,13 @@ export default function PurchasesPage() {
     .filter(po => po.status === 'received' || po.status === 'partially_received')
     .reduce((sum, po) => sum + poTotal(po), 0)
 
-  const draftTotal = draftItems.reduce(
-    (sum, i) => sum + Number(i.qty_ordered || 0) * Number(i.unit_cost || 0),
-    0
-  )
-
-  function resetDrawer() {
-    setSupplierId('')
-    setAddingSupplier(false)
-    setNewSupplierName('')
-    setOrderDate(new Date().toISOString().slice(0, 10))
-    setExpectedDate('')
-    setNotes('')
-    setDraftItems([emptyDraftItem()])
-  }
-
-  function closeDrawer() {
-    resetDrawer()
-    setShowDrawer(false)
-  }
-
-  function handleAddSupplier() {
-    const name = newSupplierName.trim()
-    if (!name) { setAddingSupplier(false); return }
-    const created = { id: `s-${Date.now()}`, name, phone: '', email: '', notes: '' }
-    setSuppliers(prev => [...prev, created])
-    setSupplierId(created.id)
-    setAddingSupplier(false)
-    setNewSupplierName('')
-  }
-
-  function updateDraftItem(id: string, patch: Partial<DraftItem>) {
-    setDraftItems(prev => prev.map(i => (i.id === id ? { ...i, ...patch } : i)))
-  }
-
-  function addDraftItemRow() {
-    setDraftItems(prev => [...prev, emptyDraftItem()])
-  }
-
-  function removeDraftItemRow(id: string) {
-    setDraftItems(prev => (prev.length > 1 ? prev.filter(i => i.id !== id) : prev))
-  }
-
-  const canSave = supplierId
-    && draftItems.some(i => i.item_name.trim() && Number(i.qty_ordered) > 0 && Number(i.unit_cost) > 0)
-
-  function handleSave(status: 'draft' | 'ordered') {
-    if (!canSave) return
-    const items: MockPurchaseOrderItem[] = draftItems
-      .filter(i => i.item_name.trim() && Number(i.qty_ordered) > 0)
-      .map(i => ({
-        id: `${Date.now()}-${Math.random()}`,
-        item_name: i.item_name.trim(),
-        variant_label: i.variant_label.trim() || '—',
-        unit: i.unit,
-        qty_ordered: Number(i.qty_ordered),
-        qty_received: 0,
-        unit_cost: Number(i.unit_cost),
-      }))
-
-    const created: MockPurchaseOrder = {
-      id: `po-${Date.now()}`,
-      po_number: genPoNumber(orders),
-      supplier_id: supplierId,
-      branch: 'Main Branch',
-      order_date: orderDate,
-      expected_date: expectedDate || null,
-      status,
-      notes: notes.trim(),
-      items,
-      created_at: new Date().toISOString(),
-    }
-
-    setOrders(prev => [created, ...prev])
-    closeDrawer()
-  }
-
   return (
     <div>
       {/* Header */}
       <div className={styles.headerRow}>
         <h1>Purchase Orders</h1>
         <div className={styles.headerActions}>
-          <button className="btn btn--primary btn--sm" onClick={() => setShowDrawer(true)} style={{ height: '32px' }}>
+          <button className="btn btn--primary btn--sm" onClick={() => router.push('/dashboard/purchases/new')} style={{ height: '32px' }}>
             <Plus size={18} /> New Purchase Order
           </button>
         </div>
@@ -253,7 +149,7 @@ export default function PurchasesPage() {
               {search || statusFilter.length > 0 ? 'Try adjusting your filters' : 'Create your first purchase order to start tracking incoming stock'}
             </p>
             {!search && statusFilter.length === 0 && (
-              <button className="btn btn--primary btn--sm" onClick={() => setShowDrawer(true)}>
+              <button className="btn btn--primary btn--sm" onClick={() => router.push('/dashboard/purchases/new')}>
                 New Purchase Order
               </button>
             )}
@@ -276,7 +172,7 @@ export default function PurchasesPage() {
                 <tr key={po.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/dashboard/purchases/${po.id}`)}>
                   <td><span className={styles.poNumberCode}>{po.po_number}</span></td>
                   <td>{supplierName(po.supplier_id)}</td>
-                  <td>{new Date(po.order_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                  <td>{po.order_date ? formatDateShort(po.order_date) : '—'}</td>
                   <td>{po.items.length} item{po.items.length !== 1 ? 's' : ''}</td>
                   <td>{formatINR(poTotal(po))}</td>
                   <td>
@@ -300,135 +196,6 @@ export default function PurchasesPage() {
         )}
       </div>
 
-      {/* ── New Purchase Order Drawer ── */}
-      {showDrawer && (
-        <div className="overlay" onClick={closeDrawer}>
-          <div className="drawer" style={{ width: '620px', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div className="drawer__header">
-              <h3 className="drawer__title">New Purchase Order</h3>
-              <button className="drawer__close" onClick={closeDrawer}><X size={18} /></button>
-            </div>
-
-            <div className={styles.drawerScroll}>
-              <div className={styles.drawerForm}>
-
-                {/* Vendor */}
-                <div className="form-group">
-                  <label className="form-label form-label--required">Vendor</label>
-                  {!addingSupplier ? (
-                    <CustomSelect
-                      value={supplierId}
-                      placeholder="Select vendor"
-                      options={[
-                        ...suppliers.map(s => ({ value: s.id, label: s.name })),
-                        { value: '__new__', label: '+ Add new vendor', isAction: true },
-                      ]}
-                      onChange={v => (v === '__new__' ? setAddingSupplier(true) : setSupplierId(v))}
-                    />
-                  ) : (
-                    <div className={styles.inlineCreate}>
-                      <input
-                        className="form-input"
-                        autoFocus
-                        placeholder="Vendor name"
-                        value={newSupplierName}
-                        onChange={e => setNewSupplierName(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddSupplier()
-                          if (e.key === 'Escape') setAddingSupplier(false)
-                        }}
-                      />
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} onClick={handleAddSupplier}>
-                        <Check size={15} />
-                      </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} onClick={() => setAddingSupplier(false)}>
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Dates */}
-                <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label form-label--required">Order Date</label>
-                    <input className="form-input" type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
-                  </div>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Expected Delivery <span className="text-tertiary font-normal">(Optional)</span></label>
-                    <input className="form-input" type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} />
-                  </div>
-                </div>
-
-                {/* Line items */}
-                <div className={styles.sectionLabel}>Line Items</div>
-                <div className={styles.lineItemsSection}>
-                  {draftItems.map(item => (
-                    <div key={item.id} className={styles.lineItemRow}>
-                      <input
-                        className={`form-input ${styles.lineItemName}`}
-                        placeholder="Item name (e.g. Cashews)"
-                        value={item.item_name}
-                        onChange={e => updateDraftItem(item.id, { item_name: e.target.value })}
-                      />
-                      <input
-                        className={`form-input ${styles.lineItemName}`}
-                        placeholder="Variant (e.g. 250g Pack)"
-                        value={item.variant_label}
-                        onChange={e => updateDraftItem(item.id, { variant_label: e.target.value })}
-                      />
-                      <input
-                        className={`form-input ${styles.lineItemQty}`}
-                        type="number" min="0"
-                        placeholder="Qty"
-                        value={item.qty_ordered}
-                        onChange={e => updateDraftItem(item.id, { qty_ordered: e.target.value === '' ? '' : Number(e.target.value) })}
-                      />
-                      <input
-                        className={`form-input ${styles.lineItemCost}`}
-                        type="number" min="0"
-                        placeholder="Cost / unit"
-                        value={item.unit_cost}
-                        onChange={e => updateDraftItem(item.id, { unit_cost: e.target.value === '' ? '' : Number(e.target.value) })}
-                      />
-                      <span className={styles.lineItemTotal}>
-                        {formatINR(Number(item.qty_ordered || 0) * Number(item.unit_cost || 0))}
-                      </span>
-                      <button
-                        type="button"
-                        className={styles.lineItemRemove}
-                        disabled={draftItems.length <= 1}
-                        onClick={() => removeDraftItemRow(item.id)}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  <div className={styles.lineItemsFooter}>
-                    <button type="button" className="btn btn--ghost btn--sm" onClick={addDraftItemRow}>
-                      <Plus size={14} /> Add line
-                    </button>
-                    <span className={styles.grandTotal}>Total: {formatINR(draftTotal)}</span>
-                  </div>
-                </div>
-
-                {/* Notes */}
-                <div className="form-group">
-                  <label className="form-label">Notes <span className="text-tertiary font-normal">(Optional)</span></label>
-                  <textarea className="form-textarea" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Delivery instructions, payment terms, etc." />
-                </div>
-
-              </div>
-            </div>
-
-            <div className={`drawer__footer ${styles.stickyFooter}`}>
-              <button className="btn btn--ghost" onClick={closeDrawer}>Cancel</button>
-              <button className="btn btn--outline" disabled={!canSave} onClick={() => handleSave('draft')}>Save as Draft</button>
-              <button className="btn btn--primary" disabled={!canSave} onClick={() => handleSave('ordered')}>Place Order</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

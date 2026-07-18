@@ -24,13 +24,14 @@ export const mockUser = {
   },
 }
 
-type MockInventoryVariant = { id: string; code: string; attributes: string[]; quantity: number }
+export type MockInventoryVariant = { id: string; code: string; name?: string; attributes: string[]; quantity: number; cost_price?: number; selling_price?: number }
 
-type MockInventoryItem = {
+export type MockInventoryItem = {
   id: string
   user_id: string
   name: string
   category: string
+  subcategory?: string
   unit: string
   current_stock: number
   par_stock: number
@@ -41,11 +42,124 @@ type MockInventoryItem = {
   attributes: string[]
   variants?: MockInventoryVariant[]
   created_at: string
+  updated_at: string
   supplier_id: string | null
   branch_id: string | null
 }
 
-export const mockInventoryItems: MockInventoryItem[] = []
+// UI-preview only — lets the inventory detail page (app/dashboard/inventory/[id])
+// render something while it's still mock-data-driven, and backs the "Add
+// Product" picker on the purchase order form. It won't show up in the real
+// (API-backed) inventory list since that list no longer reads from here.
+export const mockInventoryItems: MockInventoryItem[] = [
+  {
+    id: 'mock-1',
+    user_id: 'mock-user-1',
+    name: 'Cashews',
+    category: 'Nuts',
+    unit: 'KG',
+    current_stock: 42,
+    par_stock: 20,
+    cost_price: 620,
+    mrp: 850,
+    availability_status: 'active',
+    notes: 'Premium W240 grade, sourced from Anand Traders.',
+    attributes: ['Grade', 'Pack Size'],
+    variants: [
+      { id: 'mock-v1', code: 'VAR-001', name: 'Small Pack', attributes: ['W240', '250g'], quantity: 18, cost_price: 620 },
+      { id: 'mock-v2', code: 'VAR-002', name: 'Family Pack', attributes: ['W320', '500g'], quantity: 24, cost_price: 610 },
+    ],
+    created_at: '2024-06-20T09:00:00Z',
+    updated_at: '2024-07-12T09:00:00Z',
+    supplier_id: null,
+    branch_id: null,
+  },
+  {
+    id: 'mock-2',
+    user_id: 'mock-user-1',
+    name: 'Almonds',
+    category: 'Nuts',
+    unit: 'KG',
+    current_stock: 18,
+    par_stock: 25,
+    cost_price: 540,
+    mrp: 720,
+    availability_status: 'active',
+    notes: 'California almonds.',
+    attributes: [],
+    variants: [
+      { id: 'mock-v3', code: 'VAR-003', name: '500g Pack', attributes: [], quantity: 18, cost_price: 540 },
+    ],
+    created_at: '2024-05-10T09:00:00Z',
+    updated_at: '2024-07-14T10:30:00Z',
+    supplier_id: null,
+    branch_id: null,
+  },
+  {
+    id: 'mock-3',
+    user_id: 'mock-user-1',
+    name: 'Pistachios',
+    category: 'Nuts',
+    unit: 'KG',
+    current_stock: 22,
+    par_stock: 15,
+    cost_price: 890,
+    mrp: 1150,
+    availability_status: 'active',
+    notes: '',
+    attributes: ['Pack Size'],
+    variants: [
+      { id: 'mock-v4', code: 'VAR-004', name: '250g Pack', attributes: ['250g'], quantity: 12, cost_price: 890 },
+      { id: 'mock-v5', code: 'VAR-005', name: '1kg Pack', attributes: ['1kg'], quantity: 10, cost_price: 860 },
+    ],
+    created_at: '2024-04-02T09:00:00Z',
+    updated_at: '2024-06-30T15:00:00Z',
+    supplier_id: null,
+    branch_id: null,
+  },
+  {
+    id: 'mock-4',
+    user_id: 'mock-user-1',
+    name: 'Dates',
+    category: 'Dried Fruit',
+    unit: 'KG',
+    current_stock: 12,
+    par_stock: 20,
+    cost_price: 210,
+    mrp: 320,
+    availability_status: 'active',
+    notes: '',
+    attributes: [],
+    variants: [
+      { id: 'mock-v6', code: 'VAR-006', name: 'Loose', attributes: [], quantity: 12, cost_price: 210 },
+    ],
+    created_at: '2024-03-18T09:00:00Z',
+    updated_at: '2024-07-01T08:00:00Z',
+    supplier_id: null,
+    branch_id: null,
+  },
+  {
+    id: 'mock-5',
+    user_id: 'mock-user-1',
+    name: 'Raisins',
+    category: 'Dried Fruit',
+    unit: 'KG',
+    current_stock: 20,
+    par_stock: 15,
+    cost_price: 260,
+    mrp: 380,
+    availability_status: 'active',
+    notes: '',
+    attributes: [],
+    variants: [
+      { id: 'mock-v7', code: 'VAR-007', name: 'Loose', attributes: [], quantity: 20, cost_price: 260 },
+    ],
+    created_at: '2024-02-11T09:00:00Z',
+    updated_at: '2024-06-22T12:00:00Z',
+    supplier_id: null,
+    branch_id: null,
+  },
+]
 
 export const mockCategories: Category[] = []
 
@@ -345,6 +459,8 @@ export const mockSuppliers: MockSupplier[] = [
 
 export type PurchaseOrderStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled'
 
+export type PaymentStatus = 'pending' | 'partially_paid' | 'paid'
+
 export interface MockPurchaseOrderItem {
   id: string
   item_name: string
@@ -355,17 +471,43 @@ export interface MockPurchaseOrderItem {
   unit_cost: number
 }
 
+export interface MockReceiptHistoryEntry {
+  id: string
+  item_id: string
+  date: string
+  item_name: string
+  variant_label: string
+  qty: number
+}
+
+export interface MockPaymentHistoryEntry {
+  id: string
+  date: string
+  amount: number
+  method: string
+}
+
 export interface MockPurchaseOrder {
   id: string
   po_number: string
   supplier_id: string
   branch: string
-  order_date: string
+  order_date: string | null
   expected_date: string | null
+  received_date: string | null
+  invoice_number: string
   status: PurchaseOrderStatus
+  payment_status: PaymentStatus
+  paid_amount: number | null
+  payment_date: string | null
+  payment_method: string | null
   notes: string
   items: MockPurchaseOrderItem[]
   created_at: string
+  invoice_file_name?: string
+  invoice_file_url?: string
+  receipt_history?: MockReceiptHistoryEntry[]
+  payment_history?: MockPaymentHistoryEntry[]
 }
 
 export const mockPurchaseOrders: MockPurchaseOrder[] = [
@@ -376,7 +518,13 @@ export const mockPurchaseOrders: MockPurchaseOrder[] = [
     branch: 'Main Branch',
     order_date: '2024-06-20',
     expected_date: '2024-06-24',
+    received_date: '2024-06-24',
+    invoice_number: 'INV-2201',
     status: 'received',
+    payment_status: 'paid',
+    paid_amount: null,
+    payment_date: '2024-06-25',
+    payment_method: 'Bank Transfer',
     notes: '',
     items: [
       { id: 'poi1', item_name: 'Cashews', variant_label: '250g Pack', unit: 'KG', qty_ordered: 50, qty_received: 50, unit_cost: 620 },
@@ -391,7 +539,13 @@ export const mockPurchaseOrders: MockPurchaseOrder[] = [
     branch: 'Main Branch',
     order_date: '2024-06-28',
     expected_date: '2024-07-02',
+    received_date: null,
+    invoice_number: 'INV-2214',
     status: 'partially_received',
+    payment_status: 'partially_paid',
+    paid_amount: 15000,
+    payment_date: null,
+    payment_method: 'UPI',
     notes: 'Second half of pistachio order pending',
     items: [
       { id: 'poi3', item_name: 'Pistachios', variant_label: '250g Pack', unit: 'KG', qty_ordered: 40, qty_received: 20, unit_cost: 890 },
@@ -405,7 +559,13 @@ export const mockPurchaseOrders: MockPurchaseOrder[] = [
     branch: 'Main Branch',
     order_date: '2024-07-05',
     expected_date: '2024-07-08',
+    received_date: null,
+    invoice_number: '',
     status: 'ordered',
+    payment_status: 'pending',
+    paid_amount: null,
+    payment_date: null,
+    payment_method: null,
     notes: '',
     items: [
       { id: 'poi4', item_name: 'Cashews', variant_label: '250g Pack', unit: 'KG', qty_ordered: 60, qty_received: 0, unit_cost: 635 },
@@ -420,7 +580,13 @@ export const mockPurchaseOrders: MockPurchaseOrder[] = [
     branch: 'Main Branch',
     order_date: '2024-07-10',
     expected_date: null,
+    received_date: null,
+    invoice_number: '',
     status: 'draft',
+    payment_status: 'pending',
+    paid_amount: null,
+    payment_date: null,
+    payment_method: null,
     notes: 'Waiting on vendor price confirmation',
     items: [
       { id: 'poi6', item_name: 'Raisins', variant_label: '—', unit: 'KG', qty_ordered: 20, qty_received: 0, unit_cost: 260 },
@@ -429,4 +595,4 @@ export const mockPurchaseOrders: MockPurchaseOrder[] = [
   },
 ]
 
-export { formatINR } from './utils/format'
+export { formatINR, formatDateShort } from './utils/format'

@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { Filter, ChevronDown, X, Check, Plus, Search, User, Receipt } from 'lucide-react'
-import { mockSales, mockSaleItems, mockCustomers, formatINR } from '@/lib/mock-data'
+import { mockSales, mockSaleItems, mockCustomers, formatINR, formatDateShort } from '@/lib/mock-data'
 import styles from './sales.module.css'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -39,12 +39,7 @@ const DATE_PRESETS = [
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDate(isoString: string): string {
-  const d = new Date(isoString)
-  return d.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
+  return formatDateShort(isoString)
 }
 
 function formatTime(isoString: string): string {

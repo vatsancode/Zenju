@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentBusinessId } from '@/lib/supabase/session'
-import { asTrimmedString, createInventoryItem, listInventoryItems } from '@/lib/services/inventory'
+import { asTrimmedString, updateInventoryItem } from '@/lib/services/inventory'
 
-interface CreateInventoryItemBody {
+interface UpdateInventoryItemBody {
   name?: unknown
   category_id?: unknown
   unit_id?: unknown
@@ -11,35 +11,16 @@ interface CreateInventoryItemBody {
   expires_within_days?: unknown
   notes?: unknown
   attribute_ids?: unknown
+  confirm_attribute_removal?: unknown
 }
 
-export async function GET() {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const businessId = await getCurrentBusinessId()
   if (!businessId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const supabase = await createClient()
-
-  try {
-    const result = await listInventoryItems(supabase, businessId)
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status })
-    }
-    return NextResponse.json({ data: result.data })
-  } catch (err) {
-    console.error('[inventory:list] unexpected error', err)
-    return NextResponse.json({ error: 'Could not load products. Please try again.' }, { status: 500 })
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const businessId = await getCurrentBusinessId()
-  if (!businessId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  let body: CreateInventoryItemBody
+  let body: UpdateInventoryItemBody
   try {
     body = await request.json()
   } catch {
@@ -58,6 +39,7 @@ export async function POST(request: NextRequest) {
   const attributeIds = Array.isArray(body.attribute_ids)
     ? body.attribute_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
     : []
+  const confirmAttributeRemoval = body.confirm_attribute_removal === true
 
   if (!name) return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 })
   if (!unitId) return NextResponse.json({ error: 'Unit is required' }, { status: 400 })
@@ -65,7 +47,7 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient()
 
   try {
-    const result = await createInventoryItem(supabase, businessId, {
+    const result = await updateInventoryItem(supabase, businessId, params.id, {
       name,
       categoryId,
       unitId,
@@ -73,13 +55,20 @@ export async function POST(request: NextRequest) {
       expiresWithinDays,
       notes,
       attributeIds,
+      confirmAttributeRemoval,
     })
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status })
+      return NextResponse.json(
+        {
+          error: result.error,
+          ...(result.requiresConfirmation ? { requires_confirmation: true, affected_attributes: result.affectedAttributes } : {}),
+        },
+        { status: result.status }
+      )
     }
     return NextResponse.json({ data: result.data })
   } catch (err) {
-    console.error('[inventory:create] unexpected error', err)
-    return NextResponse.json({ error: 'Could not create the product. Please try again.' }, { status: 500 })
+    console.error('[inventory:update] unexpected error', params.id, err)
+    return NextResponse.json({ error: 'Could not save the product. Please try again.' }, { status: 500 })
   }
 }
