@@ -25,6 +25,8 @@ being rewritten — checks that lean on it have less to enforce until it returns
 | Skill | What it checks |
 |---|---|
 | `/find-dead-logic` | Whole-codebase sweep for state/handlers/fields that are defined but never reachable from the UI or any caller — not diff-scoped, run on demand |
+| `/frontend-audit` | Scores the whole frontend 0–10 against a 20-point engineering checklist (components, state, forms, styling, layout, a11y, perf, types, responsiveness, DX). Runs whole or one section: `/frontend-audit 10`, `/frontend-audit accessibility`, `/frontend-audit 1,3,16`. Tracks deltas against `frontend-audit/baseline.md` |
+| `/find-promotable` | Sweeps for code duplicated across files, or generic enough to be shared, and names each candidate's destination (`components/ui/`, `lib/`, `types/`, `globals.css`). The retroactive counterpart to the `check-*` reuse rules — those stop *new* duplication, this finds what's already there |
 
 ## Typical end-of-session flow
 

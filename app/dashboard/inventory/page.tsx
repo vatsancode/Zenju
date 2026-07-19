@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Pencil, Plus, X, Check, Filter, ChevronDown } from 'lucide-react'
+import Button from '@/components/ui/Button'
 import type { InventoryItemWithDetails } from '@/lib/services/inventory'
 import type { CategoryWithCount } from '@/lib/services/categories'
 import type { UnitWithUsage } from '@/lib/services/units'
@@ -737,13 +738,9 @@ export default function InventoryPage() {
       <div className={styles.headerRow}>
         <h1>Products</h1>
         <div className={styles.headerActions}>
-          <button
-            className="btn btn--primary btn--sm"
-            onClick={() => setShowAddDrawer(true)}
-            style={{ height: '32px' }}
-          >
-            <Plus size={18} /> Add Product
-          </button>
+          <Button size="sm" icon={<Plus size={18} />} onClick={() => setShowAddDrawer(true)}>
+            Add Product
+          </Button>
         </div>
       </div>
 
@@ -771,25 +768,25 @@ export default function InventoryPage() {
         </div>
 
         {/* Filter button — opens type-selection dropdown */}
-        <div className={styles.filterWrap}>
+        <div className="filterWrap">
           <button
-            className={`btn btn--ghost ${styles.filterBtn}${activeFilterCount > 0 ? ` ${styles.filterBtnActive}` : ''}`}
+            className={`btn btn--ghost filterBtn${activeFilterCount > 0 ? ' filterBtnActive' : ''}`}
             onClick={() => { setFilterTypeDropdownOpen(v => !v); setAddFilterDropdownOpen(false) }}
           >
             <Filter size={14} />
             Filter
             {activeFilterCount > 0 && (
-              <span className={styles.filterBadge}>{activeFilterCount}</span>
+              <span className="filterBadge">{activeFilterCount}</span>
             )}
           </button>
           {filterTypeDropdownOpen && (
             <>
-              <div className={styles.filterBackdrop} onClick={() => setFilterTypeDropdownOpen(false)} />
-              <div className={styles.filterDropdown}>
+              <div className="filterBackdrop" onClick={() => setFilterTypeDropdownOpen(false)} />
+              <div className="filterDropdown">
                 {FILTER_DEFS.map(f => (
                   <button
                     key={f.key}
-                    className={`${styles.filterOption}${activeFilterTypes.includes(f.key) ? ` ${styles.filterOptionActive}` : ''}`}
+                    className={`filterOption${activeFilterTypes.includes(f.key) ? ' filterOptionActive' : ''}`}
                     onClick={() => addFilterType(f.key)}
                   >
                     {f.label}
@@ -804,10 +801,10 @@ export default function InventoryPage() {
 
       {/* Active filter bar + result count — shown when any filter/search is active */}
       {(activeFilterTypes.length > 0 || search) && (
-        <div className={styles.resultSummaryRow}>
-          <span className={styles.resultSummary}>
+        <div className="resultSummaryRow">
+          <span className="resultSummary">
             <strong>{filteredItems.length}</strong> {filteredItems.length === 1 ? 'product' : 'products'}
-            <span className={styles.resultSummarySep}>•</span>
+            <span className="resultSummarySep">•</span>
           </span>
 
           {/* Active filter chips */}
@@ -825,23 +822,23 @@ export default function InventoryPage() {
                   : `${selectedValues.length} selected`
 
             return (
-              <div key={key} className={styles.filterChipWrap}>
-                <div className={`${styles.filterChipInner}${isOpen ? ` ${styles.filterChipInnerOpen}` : ''}`}>
+              <div key={key} className="filterChipWrap">
+                <div className={`filterChipInner${isOpen ? ' filterChipInnerOpen' : ''}`}>
                   <button
-                    className={styles.filterChipMain}
+                    className="filterChipMain"
                     onClick={() => setOpenValueDropdown(prev => prev === key ? null : key)}
                   >
-                    <span className={styles.filterChipLabel}>{label}</span>
-                    <span className={`${styles.filterChipValues}${selectedValues.length > 0 ? ` ${styles.filterChipValuesActive}` : ''}`}>
+                    <span className="filterChipLabel">{label}</span>
+                    <span className={`filterChipValues${selectedValues.length > 0 ? ' filterChipValuesActive' : ''}`}>
                       {displayText}
                     </span>
                     <ChevronDown
                       size={11}
-                      className={`${styles.filterChipChevron}${isOpen ? ` ${styles.filterChipChevronOpen}` : ''}`}
+                      className={`filterChipChevron${isOpen ? ' filterChipChevronOpen' : ''}`}
                     />
                   </button>
                   <button
-                    className={styles.filterChipRemove}
+                    className="filterChipRemove"
                     onClick={() => removeFilterType(key)}
                     title={`Remove ${label} filter`}
                   >
@@ -851,21 +848,21 @@ export default function InventoryPage() {
 
                 {isOpen && (
                   <>
-                    <div className={styles.filterBackdrop} onClick={() => setOpenValueDropdown(null)} />
-                    <div className={styles.valueDropdown}>
+                    <div className="filterBackdrop" onClick={() => setOpenValueDropdown(null)} />
+                    <div className="valueDropdown">
                       {options.map(opt => {
                         const checked = selectedValues.includes(opt.value)
                         return (
                           <button
                             key={opt.value}
-                            className={`${styles.valueOption}${checked ? ` ${styles.valueOptionChecked}` : ''}`}
+                            className={`valueOption${checked ? ' valueOptionChecked' : ''}`}
                             onClick={() => {
                               setCategoryFilters(prev =>
                                 prev.includes(opt.value) ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
                               )
                             }}
                           >
-                            <span className={styles.valueOptionCheck}>
+                            <span className="valueOptionCheck">
                               {checked && <Check size={10} />}
                             </span>
                             {opt.label}
@@ -881,18 +878,18 @@ export default function InventoryPage() {
 
           {/* Search chip */}
           {search && (
-            <button className={styles.filterChip} onClick={() => setSearch('')} title="Clear search">
-              <span className={styles.filterChipLabel}>Search:</span>
-              <span className={styles.filterChipValue}>{search}</span>
+            <button className="filterChip" onClick={() => setSearch('')} title="Clear search">
+              <span className="filterChipLabel">Search:</span>
+              <span className="filterChipValue">{search}</span>
               <X size={12} />
             </button>
           )}
 
           {/* + Add Filter (only when unused filter types remain) */}
           {FILTER_DEFS.some(f => !activeFilterTypes.includes(f.key)) && activeFilterTypes.length > 0 && (
-            <div className={styles.addFilterWrap}>
+            <div className="addFilterWrap">
               <button
-                className={styles.addFilterBtn}
+                className="addFilterBtn"
                 onClick={() => { setAddFilterDropdownOpen(v => !v); setFilterTypeDropdownOpen(false) }}
               >
                 <Plus size={12} />
@@ -900,12 +897,12 @@ export default function InventoryPage() {
               </button>
               {addFilterDropdownOpen && (
                 <>
-                  <div className={styles.filterBackdrop} onClick={() => setAddFilterDropdownOpen(false)} />
-                  <div className={styles.filterDropdown}>
+                  <div className="filterBackdrop" onClick={() => setAddFilterDropdownOpen(false)} />
+                  <div className="filterDropdown">
                     {FILTER_DEFS.filter(f => !activeFilterTypes.includes(f.key)).map(f => (
                       <button
                         key={f.key}
-                        className={styles.filterOption}
+                        className="filterOption"
                         onClick={() => addFilterType(f.key)}
                       >
                         {f.label}
@@ -917,7 +914,7 @@ export default function InventoryPage() {
             </div>
           )}
 
-          <button className={styles.filterClearAll} onClick={clearAllFilters}>
+          <button className="filterClearAll" onClick={clearAllFilters}>
             Clear all
           </button>
         </div>
@@ -944,12 +941,9 @@ export default function InventoryPage() {
                 : 'Add your first product to get started'}
             </p>
             {!search && categoryFilters.length === 0 && (
-              <button
-                className="btn btn--primary btn--sm"
-                onClick={() => setShowAddDrawer(true)}
-              >
+              <Button size="sm" onClick={() => setShowAddDrawer(true)}>
                 Add Product
-              </button>
+              </Button>
             )}
           </div>
         ) : (

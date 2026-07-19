@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { Sun, Moon } from 'lucide-react'
+import { usePageTitle } from './PageTitleContext'
 
 export default function TopBar() {
   const [isDark, setIsDark] = useState(false)
+  const title = usePageTitle()
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -33,6 +35,7 @@ export default function TopBar() {
 
   return (
     <header className="topbar">
+      {title && <h1 className="topbar__title">{title}</h1>}
       <div className="topbar__actions">
         <button
           className="theme-toggle"

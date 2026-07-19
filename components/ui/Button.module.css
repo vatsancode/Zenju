@@ -1,0 +1,12 @@
+/* Icon-only buttons — square hit target, no text.
+   Composed with the global .btn class for higher specificity than
+   .btn--sm/.btn--lg so padding/size overrides win regardless of source order. */
+
+:global(.btn).iconOnly {
+  padding: 0;
+  flex-shrink: 0;
+}
+
+:global(.btn).iconOnlySm { width: 32px; height: 32px; }
+:global(.btn).iconOnlyMd { width: 36px; height: 36px; }
+:global(.btn).iconOnlyLg { width: 44px; height: 44px; }

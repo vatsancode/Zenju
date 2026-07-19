@@ -39,13 +39,41 @@
   margin-bottom: var(--space-4);
 }
 
+/* The search input and .filterBtn (globals.css) are both sized to match
+   .form-input (41px). "New Purchase Order" shares this row too, so pin it
+   to the same height instead of its default btn size — otherwise it reads
+   visibly shorter than its neighbors. */
+.filtersRow :global(.btn) {
+  height: 41px;
+}
+
 .searchWrap {
   width: 300px;
   flex-shrink: 0;
 }
 
-.selectWrap {
-  width: 200px;
+/* Wider value dropdown for the Order Date filter — needs room for the
+   custom-range date inputs, unlike the plain checkbox lists. */
+.valueDropdownWide {
+  min-width: 260px;
+}
+
+.customRangeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 0.5px solid var(--color-border-light);
+}
+
+.customRangeRow :global(.form-input) {
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+}
+
+.customRangeSep {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
 
@@ -390,6 +418,93 @@
   grid-column: span 2;
 }
 
+.tabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border-default);
+  margin-bottom: var(--space-5);
+}
+
+.tabBtn {
+  position: relative;
+  background: none;
+  border: none;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tabBtn:hover {
+  color: var(--color-text-primary);
+}
+
+.tabBtnActive {
+  color: var(--color-brand-blue);
+}
+
+.tabBtnActive::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-brand-blue);
+  border-radius: 2px 2px 0 0;
+}
+
+.documentsPanel {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+.documentCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  max-width: 420px;
+}
+
+.documentCardIcon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-info);
+  color: var(--color-brand-blue);
+}
+
+.documentCardInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.documentCardName {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .paymentRow {
   display: flex;
   align-items: center;
@@ -455,18 +570,6 @@
   flex-wrap: wrap;
 }
 
-.viewInvoiceLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-brand-blue);
-  text-decoration: none;
-}
-
-.viewInvoiceLink:hover { text-decoration: underline; }
-
 .itemsPanel {
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-default);
@@ -521,6 +624,10 @@
 .receiveAddBtn:disabled:hover { background: var(--color-bg-info); color: var(--color-brand-blue); }
 
 .lineItemDetailRow:hover .receiveAddBtn { visibility: visible; }
+
+/* The payment-status "+" button isn't inside a hover-reveal table row,
+   so it needs to stay visible on its own. */
+.paymentRow .receiveAddBtn { visibility: visible; }
 
 .receivePopupOverlay {
   position: fixed;
@@ -787,6 +894,23 @@
 
 .invoiceFileRemove:hover { background: var(--color-bg-danger); color: var(--color-text-danger); }
 
+.invoiceFileView {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  transition: var(--transition-fast);
+}
+
+.invoiceFileView:hover { background: var(--color-bg-info); color: var(--color-brand-blue); }
+
 /* ── Collapsible step sections ───────────────────────────── */
 
 .newPoStepHeader {
@@ -846,9 +970,34 @@
   border-bottom: none;
 }
 
+/* Lets the toggle fill the row when a sibling action button (e.g. "Add
+   Product") shares the header row, so clicking anywhere left of that
+   button — not just directly on the label — still expands/collapses. */
+.newPoStepToggleGrow {
+  flex: 1;
+  justify-content: flex-start;
+}
+
 .newPoCollapsedSummary {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
+}
+
+/* The collapsed summary is rendered as a <button> so the entire line is
+   clickable to re-expand the section, not just the header label above it. */
+.newPoCollapsedSummaryClickable {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.newPoCollapsedSummaryClickable:hover {
+  color: var(--color-text-primary);
 }
 
 .newPoStepFooter {
@@ -881,34 +1030,73 @@
   color: var(--color-text-tertiary);
 }
 
-.newPoStatusRow {
+/* ── Segmented status pickers ─────────────────────────────────
+   All options visible at a glance, one click to switch — replaces
+   the old dropdowns for order status and payment status. */
+
+.segmentHead {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-4);
   flex-wrap: wrap;
 }
 
-.newPoStatusField {
-  width: 220px;
-  flex-shrink: 0;
+.segmentHint {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
 }
 
-.newPoConditionalPanel {
+.segmented {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px;
+  gap: 2px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-btn);
+}
+
+.segmentBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  background: transparent;
+  border-radius: calc(var(--radius-btn) - 3px);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+}
+
+.segmentBtn:hover {
+  color: var(--color-text-primary);
+}
+
+.segmentBtnActive,
+.segmentBtnActive:hover {
+  background: var(--color-bg-primary);
+  color: var(--color-brand-blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
+}
+
+/* Contextual fields that slide in under the selected status
+   (expected delivery, received date, payment details). */
+.statusStrip {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
   background: var(--color-bg-info);
   border: 0.5px solid var(--color-border-info);
   border-radius: var(--radius-md);
-  flex: 1;
-  min-width: 200px;
 }
 
-.newPoConditionalPanel :global(.form-group) {
-  flex: 1;
-  min-width: 160px;
-}
-
-.newPoConditionalPanelWide {
-  flex-wrap: wrap;
+.statusStrip :global(.form-group) {
+  flex: 0 1 240px;
+  min-width: 180px;
+  margin-bottom: 0;
 }

@@ -413,7 +413,7 @@ function QuickAddVariantPopup({
   const [unitCost, setUnitCost] = useState<number | ''>(defaultCost || '')
   const [sellingPrice, setSellingPrice] = useState<number | ''>(defaultSellingPrice || '')
 
-  const canCreate = name.trim() && Number(qty) > 0 && Number(unitCost) > 0
+  const canCreate = Number(qty) > 0 && Number(unitCost) > 0
 
   function handleCreate() {
     if (!canCreate) return
@@ -432,7 +432,7 @@ function QuickAddVariantPopup({
         <div className={styles.miniModalTitle}>New Variant</div>
 
         <div className="form-group">
-          <label className="form-label form-label--required">Variant name</label>
+          <label className="form-label">Variant name <span className="text-tertiary font-normal">(Optional)</span></label>
           <input
             className="form-input"
             placeholder="e.g. 1kg Pack"

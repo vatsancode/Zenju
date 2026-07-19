@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Ban, Truck, FileText, Plus, Info, X } from 'lucide-react'
+import { ArrowLeft, Ban, Truck, FileText, Plus, Info, X, Pencil, Paperclip, Eye } from 'lucide-react'
 import { mockSuppliers, mockPurchaseOrders, formatINR, formatDateShort } from '@/lib/mock-data'
 import type { MockPurchaseOrder, MockReceiptHistoryEntry, MockPaymentHistoryEntry, PurchaseOrderStatus, PaymentStatus } from '@/lib/mock-data'
 import CustomSelect from '@/components/ui/CustomSelect'
@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
 }
 
 const STATUS_BADGE: Record<PurchaseOrderStatus, string> = {
-  draft: 'neutral',
+  draft: 'draft',
   ordered: 'info',
   partially_received: 'warning',
   received: 'success',
@@ -42,6 +42,7 @@ export default function PurchaseOrderDetailPage() {
   const [paymentDateInput, setPaymentDateInput] = useState(() => new Date().toISOString().slice(0, 10))
   const [paymentMethodInput, setPaymentMethodInput] = useState(PAYMENT_METHODS[0])
   const [showPaymentHistory, setShowPaymentHistory] = useState(false)
+  const [activeTab, setActiveTab] = useState<'overview' | 'documents'>('overview')
 
   if (!po) {
     return (
@@ -184,6 +185,11 @@ export default function PurchaseOrderDetailPage() {
         </div>
         <div className={styles.headerActions}>
           {po.status === 'draft' && (
+            <button className="btn btn--outline btn--sm" onClick={() => router.push(`/dashboard/purchases/${po.id}/edit`)}>
+              <Pencil size={14} /> Edit
+            </button>
+          )}
+          {po.status === 'draft' && (
             <button className="btn btn--primary btn--sm" onClick={markAsOrdered}>
               <Truck size={14} /> Place Order
             </button>
@@ -196,200 +202,238 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
-      {/* Info grid */}
-      <div className={styles.infoGrid}>
-        <div className={styles.infoField}>
-          <span className={styles.infoLabel}>Order Date</span>
-          <span className={styles.infoValue}>{po.order_date ? formatDateShort(po.order_date) : '—'}</span>
-        </div>
-        <div className={styles.infoField}>
-          <span className={styles.infoLabel}>Expected Delivery</span>
-          <span className={styles.infoValue}>{po.expected_date ? formatDateShort(po.expected_date) : '—'}</span>
-        </div>
-        <div className={styles.infoField}>
-          <span className={styles.infoLabel}>Received Date</span>
-          <input
-            type="date"
-            className={`form-input ${styles.receivedDateInput}`}
-            value={po.received_date ?? ''}
-            onChange={e => handleReceivedDateChange(e.target.value)}
-          />
-        </div>
-        <div className={styles.infoField}>
-          <span className={styles.infoLabel}>Vendor Contact</span>
-          <span className={styles.infoValue}>{supplier?.phone || supplier?.email || '—'}</span>
-        </div>
-        <div className={styles.infoField}>
-          <span className={styles.infoLabel}>Total Amount</span>
-          <span className={styles.infoValue}>{formatINR(total)}</span>
-        </div>
-        <div className={styles.infoField}>
-          <span className={styles.infoLabel}>Invoice Number</span>
-          <span className={styles.infoValue}>
-            {po.invoice_number || '—'}
-            {po.invoice_file_url && (
+      {/* Tab bar */}
+      <div className={styles.tabBar}>
+        <button
+          className={`${styles.tabBtn} ${activeTab === 'overview' ? styles.tabBtnActive : ''}`}
+          onClick={() => setActiveTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          className={`${styles.tabBtn} ${activeTab === 'documents' ? styles.tabBtnActive : ''}`}
+          onClick={() => setActiveTab('documents')}
+        >
+          <Paperclip size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+          Documents
+        </button>
+      </div>
+
+      {activeTab === 'documents' && (
+        <div className={styles.documentsPanel}>
+          {po.invoice_file_url ? (
+            <div className={styles.documentCard}>
+              <div className={styles.documentCardIcon}>
+                <FileText size={18} />
+              </div>
+              <div className={styles.documentCardInfo}>
+                <span className={styles.documentCardName}>{po.invoice_file_name || 'Invoice'}</span>
+                {po.invoice_number && <span className="text-secondary text-sm">Invoice #{po.invoice_number}</span>}
+              </div>
               <a
                 href={po.invoice_file_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={styles.viewInvoiceLink}
+                className="btn btn--outline btn--sm"
                 title={po.invoice_file_name}
               >
-                <FileText size={13} /> View Invoice
+                <Eye size={14} /> View
               </a>
-            )}
-          </span>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p className="empty-state__title">No invoice uploaded</p>
+              <p className="empty-state__desc">Attach an invoice from the edit screen to see it here.</p>
+            </div>
+          )}
         </div>
-        <div className={`${styles.infoField} ${styles.infoFieldWide}`}>
-          <span className={styles.infoLabel}>Payment Status</span>
-          <div className={styles.paymentRow}>
-            <div className={styles.paymentStatusSelect}>
-              <CustomSelect
-                value={po.payment_status}
-                onChange={handlePaymentStatusChange}
-                options={[
-                  { value: 'pending', label: 'Pending' },
-                  { value: 'partially_paid', label: 'Partially Paid' },
-                  { value: 'paid', label: 'Paid' },
-                ]}
+      )}
+
+      {activeTab === 'overview' && (
+        <>
+          {/* Info grid */}
+          <div className={styles.infoGrid}>
+            <div className={styles.infoField}>
+              <span className={styles.infoLabel}>Order Date</span>
+              <span className={styles.infoValue}>{po.order_date ? formatDateShort(po.order_date) : '—'}</span>
+            </div>
+            <div className={styles.infoField}>
+              <span className={styles.infoLabel}>Expected Delivery</span>
+              <span className={styles.infoValue}>{po.expected_date ? formatDateShort(po.expected_date) : '—'}</span>
+            </div>
+            <div className={styles.infoField}>
+              <span className={styles.infoLabel}>Received Date</span>
+              <input
+                type="date"
+                className={`form-input ${styles.receivedDateInput}`}
+                value={po.received_date ?? ''}
+                onChange={e => handleReceivedDateChange(e.target.value)}
               />
             </div>
+            <div className={styles.infoField}>
+              <span className={styles.infoLabel}>Vendor Contact</span>
+              <span className={styles.infoValue}>{supplier?.phone || supplier?.email || '—'}</span>
+            </div>
+            <div className={styles.infoField}>
+              <span className={styles.infoLabel}>Total Amount</span>
+              <span className={styles.infoValue}>{formatINR(total)}</span>
+            </div>
+            <div className={styles.infoField}>
+              <span className={styles.infoLabel}>Invoice Number</span>
+              <span className={styles.infoValue}>{po.invoice_number || '—'}</span>
+            </div>
+            <div className={`${styles.infoField} ${styles.infoFieldWide}`}>
+              <span className={styles.infoLabel}>Payment Status</span>
+              <div className={styles.paymentRow}>
+                <div className={styles.paymentStatusSelect}>
+                  <CustomSelect
+                    value={po.payment_status}
+                    onChange={handlePaymentStatusChange}
+                    options={[
+                      { value: 'pending', label: 'Pending' },
+                      { value: 'partially_paid', label: 'Partially Paid' },
+                      { value: 'paid', label: 'Paid' },
+                    ]}
+                  />
+                </div>
 
-            {po.payment_status !== 'pending' && (
-              <span className="text-secondary text-sm">
-                {formatINR(po.paid_amount ?? 0)} paid
-                {po.payment_status === 'partially_paid' && (
-                  <> · {formatINR(Math.max(0, total - (po.paid_amount ?? 0)))} remaining</>
+                {po.payment_status !== 'pending' && (
+                  <span className="text-secondary text-sm">
+                    {formatINR(po.paid_amount ?? 0)} paid
+                    {po.payment_status === 'partially_paid' && (
+                      <> · {formatINR(Math.max(0, total - (po.paid_amount ?? 0)))} remaining</>
+                    )}
+                  </span>
                 )}
-              </span>
-            )}
 
-            {po.payment_status !== 'paid' && (
-              <button type="button" className={styles.receiveAddBtn} onClick={startLoggingPayment} title="Log a payment">
-                <Plus size={13} />
-              </button>
-            )}
-            {(po.payment_history ?? []).length > 1 && (
-              <button type="button" className={styles.infoIconBtn} onClick={() => setShowPaymentHistory(true)} title="View payment history">
-                <Info size={13} />
-              </button>
-            )}
+                {po.payment_status !== 'paid' && (
+                  <button type="button" className={styles.receiveAddBtn} onClick={startLoggingPayment} title="Log a payment">
+                    <Plus size={13} />
+                  </button>
+                )}
+                {(po.payment_history ?? []).length > 1 && (
+                  <button type="button" className={styles.infoIconBtn} onClick={() => setShowPaymentHistory(true)} title="View payment history">
+                    <Info size={13} />
+                  </button>
+                )}
+              </div>
+
+              {loggingPayment && (
+                <LogPaymentPopup
+                  remaining={Math.max(0, total - (po.paid_amount ?? 0))}
+                  amount={paymentAmount}
+                  onAmountChange={setPaymentAmount}
+                  date={paymentDateInput}
+                  onDateChange={setPaymentDateInput}
+                  method={paymentMethodInput}
+                  onMethodChange={setPaymentMethodInput}
+                  onConfirm={confirmLogPayment}
+                  onCancel={() => setLoggingPayment(false)}
+                />
+              )}
+
+              {showPaymentHistory && (
+                <PaymentHistoryPopup
+                  entries={po.payment_history ?? []}
+                  onClose={() => setShowPaymentHistory(false)}
+                />
+              )}
+            </div>
           </div>
 
-          {loggingPayment && (
-            <LogPaymentPopup
-              remaining={Math.max(0, total - (po.paid_amount ?? 0))}
-              amount={paymentAmount}
-              onAmountChange={setPaymentAmount}
-              date={paymentDateInput}
-              onDateChange={setPaymentDateInput}
-              method={paymentMethodInput}
-              onMethodChange={setPaymentMethodInput}
-              onConfirm={confirmLogPayment}
-              onCancel={() => setLoggingPayment(false)}
-            />
-          )}
-
-          {showPaymentHistory && (
-            <PaymentHistoryPopup
-              entries={po.payment_history ?? []}
-              onClose={() => setShowPaymentHistory(false)}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Line items */}
-      <div className={styles.itemsPanel}>
-        <div className={styles.itemsPanelHead}>
-          <span className={styles.itemsPanelTitle}>Line Items ({po.items.length})</span>
-          {canReceive && <span className="text-sm text-secondary">Hover a row to log stock received</span>}
-        </div>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Variant</th>
-              <th>Unit</th>
-              <th>Ordered</th>
-              <th>Received</th>
-              <th>Unit Cost</th>
-              <th>Line Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {po.items.map(item => {
-              const remaining = item.qty_ordered - item.qty_received
-              const isReceivingThis = receivingItemId === item.id
-              const itemHistory = (po.receipt_history ?? []).filter(h => h.item_id === item.id)
-              return (
-                <tr key={item.id} className={styles.lineItemDetailRow}>
-                  <td>{item.item_name}</td>
-                  <td>{item.variant_label}</td>
-                  <td>{item.unit}</td>
-                  <td>{item.qty_ordered}</td>
-                  <td>
-                    <div className={styles.receiveDisplay}>
-                      <span>{item.qty_received} / {item.qty_ordered}</span>
-                      {canReceive && (
-                        <button
-                          type="button"
-                          className={styles.receiveAddBtn}
-                          onClick={() => startReceivingItem(item.id)}
-                          disabled={remaining <= 0}
-                          title="Log stock received"
-                        >
-                          <Plus size={13} />
-                        </button>
-                      )}
-                      {itemHistory.length > 1 && (
-                        <button
-                          type="button"
-                          className={styles.infoIconBtn}
-                          onClick={() => setHistoryForItemId(item.id)}
-                          title="View delivery history"
-                        >
-                          <Info size={13} />
-                        </button>
-                      )}
-                    </div>
-
-                    {isReceivingThis && (
-                      <ReceiveStockPopup
-                        itemName={item.item_name}
-                        variantLabel={item.variant_label}
-                        remaining={remaining}
-                        qty={receiveQty}
-                        onQtyChange={setReceiveQty}
-                        date={receiveDate}
-                        onDateChange={setReceiveDate}
-                        onConfirm={() => confirmReceiveItem(item.id)}
-                        onCancel={cancelReceivingItem}
-                      />
-                    )}
-
-                    {historyForItemId === item.id && (
-                      <ReceiptHistoryPopup
-                        itemName={item.item_name}
-                        variantLabel={item.variant_label}
-                        entries={itemHistory}
-                        onClose={() => setHistoryForItemId(null)}
-                      />
-                    )}
-                  </td>
-                  <td>{formatINR(item.unit_cost)}</td>
-                  <td>{formatINR(item.qty_ordered * item.unit_cost)}</td>
+          {/* Line items */}
+          <div className={styles.itemsPanel}>
+            <div className={styles.itemsPanelHead}>
+              <span className={styles.itemsPanelTitle}>Line Items ({po.items.length})</span>
+              {canReceive && <span className="text-sm text-secondary">Hover a row to log stock received</span>}
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Variant</th>
+                  <th>Unit</th>
+                  <th>Ordered</th>
+                  <th>Received</th>
+                  <th>Unit Cost</th>
+                  <th>Line Total</th>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {po.items.map(item => {
+                  const remaining = item.qty_ordered - item.qty_received
+                  const isReceivingThis = receivingItemId === item.id
+                  const itemHistory = (po.receipt_history ?? []).filter(h => h.item_id === item.id)
+                  return (
+                    <tr key={item.id} className={styles.lineItemDetailRow}>
+                      <td>{item.item_name}</td>
+                      <td>{item.variant_label}</td>
+                      <td>{item.unit}</td>
+                      <td>{item.qty_ordered}</td>
+                      <td>
+                        <div className={styles.receiveDisplay}>
+                          <span>{item.qty_received} / {item.qty_ordered}</span>
+                          {canReceive && (
+                            <button
+                              type="button"
+                              className={styles.receiveAddBtn}
+                              onClick={() => startReceivingItem(item.id)}
+                              disabled={remaining <= 0}
+                              title="Log stock received"
+                            >
+                              <Plus size={13} />
+                            </button>
+                          )}
+                          {itemHistory.length > 1 && (
+                            <button
+                              type="button"
+                              className={styles.infoIconBtn}
+                              onClick={() => setHistoryForItemId(item.id)}
+                              title="View delivery history"
+                            >
+                              <Info size={13} />
+                            </button>
+                          )}
+                        </div>
 
-      {po.notes && (
-        <div className={styles.notesPanel}>
-          <strong className="text-primary">Notes: </strong>{po.notes}
-        </div>
+                        {isReceivingThis && (
+                          <ReceiveStockPopup
+                            itemName={item.item_name}
+                            variantLabel={item.variant_label}
+                            remaining={remaining}
+                            qty={receiveQty}
+                            onQtyChange={setReceiveQty}
+                            date={receiveDate}
+                            onDateChange={setReceiveDate}
+                            onConfirm={() => confirmReceiveItem(item.id)}
+                            onCancel={cancelReceivingItem}
+                          />
+                        )}
+
+                        {historyForItemId === item.id && (
+                          <ReceiptHistoryPopup
+                            itemName={item.item_name}
+                            variantLabel={item.variant_label}
+                            entries={itemHistory}
+                            onClose={() => setHistoryForItemId(null)}
+                          />
+                        )}
+                      </td>
+                      <td>{formatINR(item.unit_cost)}</td>
+                      <td>{formatINR(item.qty_ordered * item.unit_cost)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {po.notes && (
+            <div className={styles.notesPanel}>
+              <strong className="text-primary">Notes: </strong>{po.notes}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

@@ -331,6 +331,13 @@ p  { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-prim
   z-index: 50;
 }
 
+.topbar__title {
+  margin-right: auto;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
 .topbar__actions {
   display: flex;
   align-items: center;
@@ -563,6 +570,16 @@ p  { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-prim
 .badge--brand   { background: var(--color-brand-blue);   color: #ffffff; }
 .badge--navy    { background: var(--color-brand-navy);   color: #ffffff; }
 
+/* Draft: not yet a real, committed order — dashed outline instead of a
+   solid fill so it reads as "unfinished" rather than sitting alongside
+   the other (filled) lifecycle states. */
+.badge--draft {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border-strong);
+  font-style: italic;
+}
+
 /* Centered "not built yet" tag under a disabled action — used on
    auth screens still waiting to be wired up to Supabase. */
 .badge--centered { display: block; width: fit-content; margin: var(--space-2) auto 0; }
@@ -577,6 +594,7 @@ p  { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-prim
   font-size: var(--text-base);
   font-weight: 500;
   padding: 8px 18px;
+  min-height: 36px;
   border-radius: var(--radius-btn);
   border: none;
   cursor: pointer;
@@ -587,8 +605,8 @@ p  { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-prim
 }
 
 .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-.btn--sm   { padding: 5px 12px; font-size: var(--text-sm); border-radius: var(--radius-md); }
-.btn--lg   { padding: 12px 28px; font-size: var(--text-md); border-radius: var(--radius-card); }
+.btn--sm   { padding: 5px 12px; min-height: 32px; font-size: var(--text-sm); border-radius: var(--radius-md); }
+.btn--lg   { padding: 12px 28px; min-height: 44px; font-size: var(--text-md); border-radius: var(--radius-card); }
 .btn--full { width: 100%; }
 
 .btn--primary  { background: var(--color-brand-blue); color: #ffffff; }
@@ -1118,3 +1136,325 @@ p  { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-prim
 }
 
 ::selection { background: rgba(46, 134, 171, 0.20); color: var(--color-text-primary); }
+
+/* ── 25. FILTER BAR ───────────────────────────────────────── */
+/* Multi-type filter button + chip strip. Used by any page that lets
+   users add several independent filters (status, date range, category...)
+   as removable pill chips with their own value dropdowns. */
+
+.filterWrap {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Match form-input height: 9px padding + 1.5 line-height + 1px border each side = 41px */
+.filterBtn {
+  padding: 9px var(--space-3);
+  line-height: 1.5;
+}
+
+.filterBtnActive {
+  background: var(--color-bg-info) !important;
+  border-color: var(--color-brand-blue) !important;
+  color: var(--color-brand-blue) !important;
+}
+
+.filterBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--color-brand-blue);
+  color: var(--color-text-on-brand);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.filterBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+
+.filterDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  min-width: 180px;
+  overflow: hidden;
+}
+
+.filterOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  color: var(--color-text-primary);
+  transition: var(--transition-fast);
+}
+
+.filterOption:hover {
+  background: var(--color-bg-secondary);
+}
+
+.filterOptionActive {
+  color: var(--color-brand-blue);
+  font-weight: 500;
+}
+
+/* Each filter chip wrapper (relative, so dropdown anchors to it) */
+.filterChipWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* The pill — split into clickable label+values area and remove button */
+.filterChipInner {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-primary);
+  overflow: hidden;
+  transition: border-color var(--transition-fast);
+}
+
+.filterChipInner:hover,
+.filterChipInnerOpen {
+  border-color: var(--color-brand-blue);
+}
+
+/* Left clickable part: label + selected values + chevron */
+.filterChipMain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-xs);
+}
+
+.filterChipLabel {
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.filterChipValues {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filterChipValuesActive {
+  color: var(--color-brand-blue);
+}
+
+.filterChipChevron {
+  color: var(--color-text-tertiary);
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+
+.filterChipChevronOpen {
+  transform: rotate(180deg);
+}
+
+/* Right remove (×) button */
+.filterChipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px 4px 4px;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--color-border-light);
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.filterChipRemove:hover {
+  color: var(--color-text-danger, #e53e3e);
+  background: var(--color-bg-secondary);
+}
+
+/* Value multi-select dropdown anchored to the chip */
+.valueDropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 50;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  min-width: 160px;
+  overflow: hidden;
+  padding: var(--space-1) 0;
+}
+
+.valueOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  color: var(--color-text-primary);
+  transition: background var(--transition-fast);
+}
+
+.valueOption:hover {
+  background: var(--color-bg-secondary);
+}
+
+.valueOptionChecked {
+  color: var(--color-brand-blue);
+}
+
+.valueOptionCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: var(--color-bg-primary);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.valueOptionChecked .valueOptionCheck {
+  border-color: var(--color-brand-blue);
+  background: var(--color-brand-blue);
+  color: #fff;
+}
+
+/* + Add Filter button */
+.addFilterWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.addFilterBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: none;
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  transition: var(--transition-fast);
+}
+
+.addFilterBtn:hover {
+  border-color: var(--color-brand-blue);
+  color: var(--color-brand-blue);
+}
+
+/* Result summary row — count + chips + add-filter on one line */
+.resultSummaryRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: calc(var(--space-4) * -1 + var(--space-2));
+  margin-bottom: var(--space-3);
+}
+
+.resultSummary {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.resultSummary strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.resultSummarySep {
+  margin: 0 var(--space-2);
+  color: var(--color-text-tertiary);
+}
+
+/* Search chip (shown in result summary row) */
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 10px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.filterChip:hover {
+  border-color: var(--color-brand-blue);
+  color: var(--color-brand-blue);
+}
+
+.filterChipValue {
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filterClearAll {
+  background: none;
+  border: none;
+  padding: 3px 6px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+  transition: var(--transition-fast);
+}
+
+.filterClearAll:hover {
+  color: var(--color-brand-blue);
+}
