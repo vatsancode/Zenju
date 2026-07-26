@@ -147,10 +147,10 @@
 /* Shared column template so the header and every row stay aligned. */
 .lineItemGrid {
   display: grid;
-  grid-template-columns: 2.4fr 0.8fr 1.1fr 100px 32px;
-  gap: var(--space-3);
+  grid-template-columns: 2.4fr 0.8fr 1.1fr 140px 64px;
+  gap: var(--space-4);
   align-items: center;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 
 .lineItemProduct {
@@ -201,6 +201,12 @@
 
 .lineItemsHeadRight {
   text-align: right;
+  white-space: nowrap;
+}
+
+.lineItemsHeadActions {
+  text-align: center;
+  white-space: nowrap;
 }
 
 .lineItemRow {
@@ -233,6 +239,7 @@
   width: 32px;
   height: 32px;
   flex-shrink: 0;
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -259,7 +266,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3);
+  padding: var(--space-4);
   background: var(--color-bg-secondary);
 }
 
@@ -983,6 +990,15 @@
   color: var(--color-text-secondary);
 }
 
+/* Order Details wraps its collapsed view in two tiers (vendor line + fact
+   grid), unlike Line Items which stays a single text row. */
+.newPoCollapsedDetails {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-1);
+}
+
 /* The collapsed summary is rendered as a <button> so the entire line is
    clickable to re-expand the section, not just the header label above it. */
 .newPoCollapsedSummaryClickable {
@@ -998,6 +1014,215 @@
 
 .newPoCollapsedSummaryClickable:hover {
   color: var(--color-text-primary);
+}
+
+/* Vendor identity line — the record's headline, separated from the fact grid
+   by a hairline so the two tiers read as heading + detail rather than one
+   undifferentiated block. */
+.newPoCollapsedSummaryMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border-light);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.newPoCollapsedVendor {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+  transition: var(--transition-fast);
+}
+
+.newPoCollapsedSummaryMain:hover .newPoCollapsedVendor {
+  color: var(--color-brand-blue);
+}
+
+.newPoCollapsedVendorHint {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  transition: var(--transition-fast);
+}
+
+.newPoCollapsedSummaryMain:hover .newPoCollapsedVendorHint {
+  opacity: 1;
+}
+
+/* Labelled fact grid — each field is a small caption stacked over its value,
+   so a glance tells you what "Ordered" or "Pending" actually refers to
+   instead of leaving bare, ambiguous pills. */
+.newPoCollapsedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-5) var(--space-4);
+}
+
+.newPoCollapsedField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.newPoCollapsedFieldLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  line-height: 1;
+}
+
+/* Values and status pills share one slot height so every column in the row
+   sits on the same optical baseline. */
+.newPoCollapsedFieldValue {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Positioning context for the dropdown — the pill and its menu anchor to
+   this, not to the wider collapsed-field column. */
+.statusStepperGroup {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* Split-pill stepper: status label on the left, chevron affordance on the
+   right. The label opens a dropdown to jump to any status directly; the
+   chevron advances one step — no need to expand the section either way.
+   Colours come from the same semantic tokens the badges use, with a hairline
+   border so the pill keeps its shape against the white card. */
+.statusStepper {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  font-family: inherit;
+  max-width: 100%;
+  transition: var(--transition-fast);
+}
+
+.statusStepperLabel {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* When there's no chevron sibling (terminal states) the label is the pill's
+   only child, so it gets the wider, symmetric padding a plain badge would. */
+.statusStepperLabel:only-child {
+  padding: 0 var(--space-3);
+}
+
+/* Separated by a tint of the pill's own text colour so the divider works in
+   both themes without a hardcoded black alpha. */
+.statusStepperChevron {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 3px 0 2px;
+  border: none;
+  border-left: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.statusStepper:hover {
+  border-color: color-mix(in srgb, currentColor 32%, transparent);
+}
+
+.statusStepper:hover .statusStepperChevron {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.statusStepper--draft   { background: var(--color-bg-secondary); color: var(--color-text-secondary); }
+.statusStepper--info    { background: var(--color-bg-info);      color: var(--color-text-info); }
+.statusStepper--success { background: var(--color-bg-success);   color: var(--color-text-success); }
+.statusStepper--warning { background: var(--color-bg-warning);   color: var(--color-text-warning); }
+.statusStepper--danger  { background: var(--color-bg-danger);    color: var(--color-text-danger); }
+
+/* Dropdown menu opened by clicking the pill's label — lists every status so
+   the user can jump straight to one instead of only stepping forward. */
+.statusDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.statusDropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.statusDropdownItem:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.statusDropdownItemActive {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  background: var(--color-bg-secondary);
+}
+
+.statusDropdownCheck {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--color-brand-blue);
 }
 
 .newPoStepFooter {
@@ -1049,7 +1274,9 @@
 
 .segmented {
   display: inline-flex;
+  flex-wrap: wrap;
   width: fit-content;
+  max-width: 100%;
   padding: 3px;
   gap: 2px;
   background: var(--color-bg-secondary);

@@ -45,6 +45,8 @@ export type MockInventoryItem = {
   updated_at: string
   supplier_id: string | null
   branch_id: string | null
+  has_expiry?: boolean
+  expires_within_days?: number | null
 }
 
 // UI-preview only — lets the inventory detail page (app/dashboard/inventory/[id])

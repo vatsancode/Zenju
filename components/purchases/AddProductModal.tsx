@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Search, X, ChevronDown, Plus,
+  Search, X, ChevronDown, Plus, Check,
 } from 'lucide-react'
 import { mockInventoryItems, formatDateShort } from '@/lib/mock-data'
 import type { MockInventoryItem, MockInventoryVariant } from '@/lib/mock-data'
@@ -34,9 +34,12 @@ function totalQty(item: MockInventoryItem) {
 export default function AddProductModal({
   onClose,
   onAdd,
+  costOptional = false,
 }: {
   onClose: () => void
   onAdd: (lines: PickedLine[]) => void
+  // The PO's vendor cost isn't known yet at Draft/Ordered — don't force it.
+  costOptional?: boolean
 }) {
   const [products, setProducts] = useState<MockInventoryItem[]>(mockInventoryItems)
   const [search, setSearch] = useState('')
@@ -46,6 +49,22 @@ export default function AddProductModal({
   const [selections, setSelections] = useState<Record<string, Selection>>({})
   const [quickAddVariantFor, setQuickAddVariantFor] = useState<string | null>(null)
   const [creatingProduct, setCreatingProduct] = useState(false)
+
+  // Selecting a variant should let the user type its qty immediately — no
+  // extra click into the field. The qty input for the just-selected variant
+  // gets focused and its value selected as soon as it mounts.
+  const qtyInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!pendingFocusKey) return
+    const el = qtyInputRefs.current[pendingFocusKey]
+    if (el) {
+      el.focus()
+      el.select()
+    }
+    setPendingFocusKey(null)
+  }, [pendingFocusKey])
 
   const categories = useMemo(
     () => Array.from(new Set(products.map(p => p.category))).filter(Boolean),
@@ -75,6 +94,7 @@ export default function AddProductModal({
 
   function toggleVariant(item: MockInventoryItem, variant: MockInventoryVariant) {
     const key = selectionKey(item.id, variant.id)
+    const wasSelected = !!selections[key]
     setSelections(prev => {
       const next = { ...prev }
       if (next[key]) {
@@ -92,6 +112,7 @@ export default function AddProductModal({
       }
       return next
     })
+    if (!wasSelected) setPendingFocusKey(key)
   }
 
   function updateSelection(key: string, patch: Partial<Selection>) {
@@ -100,13 +121,13 @@ export default function AddProductModal({
 
   function handleQuickAddVariant(
     item: MockInventoryItem,
-    fields: { name: string; code: string; qty: number; unitCost: number; sellingPrice: number }
+    fields: { name: string; code: string; qty: number; unitCost: number; sellingPrice: number; attributes: string[] }
   ) {
     const variant: MockInventoryVariant = {
       id: `mock-v-${Date.now()}`,
       code: fields.code || `VAR-${Date.now()}`,
       name: fields.name,
-      attributes: [],
+      attributes: fields.attributes,
       quantity: 0,
       cost_price: fields.unitCost,
     }
@@ -122,6 +143,16 @@ export default function AddProductModal({
     })
 
     setQuickAddVariantFor(null)
+  }
+
+  // Adding a brand-new attribute column applies to the whole product, so
+  // every existing variant needs the same empty slot to stay aligned.
+  function handleAddAttributeToItem(item: MockInventoryItem, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed || (item.attributes || []).includes(trimmed)) return
+    item.attributes = [...(item.attributes || []), trimmed]
+    item.variants = (item.variants ?? []).map(v => ({ ...v, attributes: [...v.attributes, ''] }))
+    setProducts(prev => [...prev])
   }
 
   return (
@@ -244,6 +275,7 @@ export default function AddProductModal({
                             className={`form-input ${styles.qtyInput}`}
                             value={singleSel.qty}
                             onChange={e => updateSelection(singleKey, { qty: Number(e.target.value) || 0 })}
+                            ref={el => { qtyInputRefs.current[singleKey] = el }}
                           />
                         </div>
                       )}
@@ -280,6 +312,9 @@ export default function AddProductModal({
                       <QuickAddVariantPopup
                         defaultCost={item.cost_price}
                         defaultSellingPrice={item.mrp}
+                        costOptional={costOptional}
+                        attributeNames={item.attributes || []}
+                        onAddAttribute={name => handleAddAttributeToItem(item, name)}
                         onCancel={() => setQuickAddVariantFor(null)}
                         onCreate={fields => handleQuickAddVariant(item, fields)}
                       />
@@ -299,6 +334,9 @@ export default function AddProductModal({
                           <QuickAddVariantPopup
                             defaultCost={item.cost_price}
                             defaultSellingPrice={item.mrp}
+                            costOptional={costOptional}
+                            attributeNames={item.attributes || []}
+                            onAddAttribute={name => handleAddAttributeToItem(item, name)}
                             onCancel={() => setQuickAddVariantFor(null)}
                             onCreate={fields => handleQuickAddVariant(item, fields)}
                           />
@@ -324,6 +362,7 @@ export default function AddProductModal({
                                     className={`form-input ${styles.qtyInput}`}
                                     value={sel.qty}
                                     onChange={e => updateSelection(key, { qty: Number(e.target.value) || 0 })}
+                                    ref={el => { qtyInputRefs.current[key] = el }}
                                   />
                                 </div>
                               )}
@@ -355,6 +394,7 @@ export default function AddProductModal({
         ) : (
           <CreateProductForm
             categories={categories}
+            costOptional={costOptional}
             onCancel={() => setCreatingProduct(false)}
             onCreate={(item, variant) => {
               setProducts(prev => [item, ...prev])
@@ -399,12 +439,18 @@ export default function AddProductModal({
 function QuickAddVariantPopup({
   defaultCost,
   defaultSellingPrice,
+  costOptional = false,
+  attributeNames,
+  onAddAttribute,
   onCreate,
   onCancel,
 }: {
   defaultCost: number
   defaultSellingPrice: number
-  onCreate: (fields: { name: string; code: string; qty: number; unitCost: number; sellingPrice: number }) => void
+  costOptional?: boolean
+  attributeNames: string[]
+  onAddAttribute: (name: string) => void
+  onCreate: (fields: { name: string; code: string; qty: number; unitCost: number; sellingPrice: number; attributes: string[] }) => void
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
@@ -412,8 +458,9 @@ function QuickAddVariantPopup({
   const [qty, setQty] = useState<number | ''>(1)
   const [unitCost, setUnitCost] = useState<number | ''>(defaultCost || '')
   const [sellingPrice, setSellingPrice] = useState<number | ''>(defaultSellingPrice || '')
+  const [attrValues, setAttrValues] = useState<Record<string, string>>({})
 
-  const canCreate = Number(qty) > 0 && Number(unitCost) > 0
+  const canCreate = Number(qty) > 0 && (costOptional || Number(unitCost) > 0)
 
   function handleCreate() {
     if (!canCreate) return
@@ -423,89 +470,213 @@ function QuickAddVariantPopup({
       qty: Number(qty),
       unitCost: Number(unitCost),
       sellingPrice: Number(sellingPrice) || 0,
+      attributes: attributeNames.map(n => attrValues[n]?.trim() || ''),
     })
   }
 
   return (
     <div className={styles.miniOverlay} onMouseDown={onCancel}>
       <div className={styles.miniModal} onMouseDown={e => e.stopPropagation()}>
-        <div className={styles.miniModalTitle}>New Variant</div>
-
-        <div className="form-group">
-          <label className="form-label">Variant name <span className="text-tertiary font-normal">(Optional)</span></label>
-          <input
-            className="form-input"
-            placeholder="e.g. 1kg Pack"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            autoFocus
-          />
+        <div className={styles.miniModalHeader}>
+          <div className={styles.miniModalTitle}>New Variant</div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Code <span className="text-tertiary font-normal">(Optional)</span></label>
-          <input
-            className="form-input"
-            placeholder="Auto-generated if left blank"
-            value={code}
-            onChange={e => setCode(e.target.value)}
-          />
-        </div>
-
-        <div className={styles.createFormRow}>
+        <div className={styles.miniModalBody}>
           <div className="form-group">
-            <label className="form-label form-label--required">Qty to order</label>
+            <label className="form-label">Variant name <span className="text-tertiary font-normal">(Optional)</span></label>
             <input
-              type="number" min="1"
               className="form-input"
-              value={qty}
-              onChange={e => setQty(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="e.g. 1kg Pack"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              autoFocus
             />
           </div>
+
           <div className="form-group">
-            <label className="form-label form-label--required">Unit cost</label>
+            <label className="form-label">Code <span className="text-tertiary font-normal">(Optional)</span></label>
+            <input
+              className="form-input"
+              placeholder="Auto-generated if left blank"
+              value={code}
+              onChange={e => setCode(e.target.value)}
+            />
+          </div>
+
+          <div className={styles.createFormRow}>
+            <div className="form-group">
+              <label className="form-label form-label--required">Qty to order</label>
+              <input
+                type="number" min="1"
+                className="form-input"
+                value={qty}
+                onChange={e => setQty(e.target.value === '' ? '' : Number(e.target.value))}
+              />
+            </div>
+            <div className="form-group">
+              {costOptional ? (
+                <label className="form-label">Expected unit cost <span className="text-tertiary font-normal">(Optional)</span></label>
+              ) : (
+                <label className="form-label form-label--required">Unit cost</label>
+              )}
+              <div className="input-prefix">
+                <span className="input-prefix__label">₹</span>
+                <input
+                  type="number" min="0"
+                  className="form-input"
+                  value={unitCost}
+                  onChange={e => setUnitCost(e.target.value === '' ? '' : Number(e.target.value))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Selling price <span className="text-tertiary font-normal">(Optional)</span></label>
             <div className="input-prefix">
               <span className="input-prefix__label">₹</span>
               <input
                 type="number" min="0"
                 className="form-input"
-                value={unitCost}
-                onChange={e => setUnitCost(e.target.value === '' ? '' : Number(e.target.value))}
+                value={sellingPrice}
+                onChange={e => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
               />
             </div>
           </div>
+
+          <AttributesStrip
+            names={attributeNames}
+            values={attrValues}
+            onValueChange={(attrName, value) => setAttrValues(prev => ({ ...prev, [attrName]: value }))}
+            onAddName={onAddAttribute}
+          />
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Selling price <span className="text-tertiary font-normal">(Optional)</span></label>
-          <div className="input-prefix">
-            <span className="input-prefix__label">₹</span>
-            <input
-              type="number" min="0"
-              className="form-input"
-              value={sellingPrice}
-              onChange={e => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
-            />
+        <div className={styles.miniModalFooter}>
+          <div className={styles.footerActions} style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn btn--ghost" onClick={onCancel}>Cancel</button>
+            <button type="button" className="btn btn--primary" disabled={!canCreate} onClick={handleCreate}>
+              Add Variant
+            </button>
           </div>
-        </div>
-
-        <div className={styles.footerActions} style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn--ghost" onClick={onCancel}>Cancel</button>
-          <button type="button" className="btn btn--primary" disabled={!canCreate} onClick={handleCreate}>
-            Add Variant
-          </button>
         </div>
       </div>
     </div>
   )
 }
 
+// Collapsed by default — attributes (Size, Grade, Color…) are optional and
+// most quick-adds don't need them, so the strip only expands on request.
+// `onRemoveName` is omitted where names come from the product itself (this
+// popup can only add to that list, not edit it out from under other variants).
+function AttributesStrip({
+  names,
+  values,
+  onValueChange,
+  onAddName,
+  onRemoveName,
+}: {
+  names: string[]
+  values: Record<string, string>
+  onValueChange: (name: string, value: string) => void
+  onAddName: (name: string) => void
+  onRemoveName?: (index: number) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [addingNew, setAddingNew] = useState(false)
+  const [newName, setNewName] = useState('')
+
+  function confirmAddName() {
+    const trimmed = newName.trim()
+    if (!trimmed) { setAddingNew(false); return }
+    onAddName(trimmed)
+    setNewName('')
+    setAddingNew(false)
+  }
+
+  return (
+    <div className={styles.attrStripWrap}>
+      <button
+        type="button"
+        className={styles.attrStripToggle}
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+      >
+        <span>Attributes <span className="text-tertiary font-normal">(Optional)</span></span>
+        <span className={`${styles.expandChevron} ${expanded ? styles.expandChevronOpen : ''}`}>
+          <ChevronDown size={14} />
+        </span>
+      </button>
+
+      {expanded && (
+        <div className={styles.attrStripBody}>
+          {names.length === 0 && !addingNew && (
+            <p className={styles.attrStripEmpty}>No attributes yet — e.g. Size, Color, Grade.</p>
+          )}
+
+          {names.map((attrName, idx) => (
+            <div className="form-group" key={`${attrName}-${idx}`}>
+              <label className={styles.attrStripFieldLabel}>
+                <span>{attrName}</span>
+                {onRemoveName && (
+                  <button
+                    type="button"
+                    className={styles.attrToolbarChipRemove}
+                    onClick={() => onRemoveName(idx)}
+                    title={`Remove ${attrName}`}
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </label>
+              <input
+                className="form-input"
+                placeholder={`e.g. ${attrName} value`}
+                value={values[attrName] ?? ''}
+                onChange={e => onValueChange(attrName, e.target.value)}
+              />
+            </div>
+          ))}
+
+          {addingNew ? (
+            <div className={styles.inlineCreate}>
+              <input
+                autoFocus
+                className="form-input"
+                placeholder="Attribute name, e.g. Size"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') confirmAddName()
+                  if (e.key === 'Escape') { setAddingNew(false); setNewName('') }
+                }}
+              />
+              <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} onClick={confirmAddName}>
+                <Check size={14} />
+              </button>
+              <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} onClick={() => { setAddingNew(false); setNewName('') }}>
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <button type="button" className={styles.attrStripAdd} onClick={() => setAddingNew(true)}>
+              <Plus size={13} /> Add attribute
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CreateProductForm({
   categories,
+  costOptional = false,
   onCreate,
   onCancel,
 }: {
   categories: string[]
+  costOptional?: boolean
   onCreate: (item: MockInventoryItem, variant: MockInventoryVariant) => void
   onCancel: () => void
 }) {
@@ -517,8 +688,26 @@ function CreateProductForm({
   const [qty, setQty] = useState<number | ''>(1)
   const [cost, setCost] = useState<number | ''>('')
   const [sellingPrice, setSellingPrice] = useState<number | ''>('')
+  const [attributeNames, setAttributeNames] = useState<string[]>([])
+  const [attrValues, setAttrValues] = useState<Record<string, string>>({})
+  const [hasExpiry, setHasExpiry] = useState(false)
+  const [expiresWithinDays, setExpiresWithinDays] = useState<number | ''>('')
 
-  const canCreate = name.trim() && Number(qty) > 0 && Number(cost) > 0
+  const canCreate = name.trim() && Number(qty) > 0 && (costOptional || Number(cost) > 0)
+
+  function handleAddAttrName(attrName: string) {
+    setAttributeNames(prev => (prev.includes(attrName) ? prev : [...prev, attrName]))
+  }
+
+  function handleRemoveAttrName(idx: number) {
+    const removed = attributeNames[idx]
+    setAttributeNames(prev => prev.filter((_, i) => i !== idx))
+    setAttrValues(prev => {
+      const next = { ...prev }
+      delete next[removed]
+      return next
+    })
+  }
 
   function handleCreate() {
     if (!canCreate) return
@@ -527,7 +716,7 @@ function CreateProductForm({
       id: `mock-v-${Date.now()}`,
       code: `VAR-${Date.now()}`,
       name: variantName.trim() || 'Default',
-      attributes: [],
+      attributes: attributeNames.map(n => attrValues[n]?.trim() || ''),
       quantity: Number(qty),
       cost_price: Number(cost),
       selling_price: Number(sellingPrice) || undefined,
@@ -545,17 +734,20 @@ function CreateProductForm({
       mrp: Number(sellingPrice) || Number(cost),
       availability_status: 'active',
       notes: '',
-      attributes: [],
+      attributes: attributeNames,
       variants: [variant],
       created_at: now,
       updated_at: now,
       supplier_id: null,
       branch_id: null,
+      has_expiry: hasExpiry,
+      expires_within_days: hasExpiry && expiresWithinDays !== '' ? Number(expiresWithinDays) : null,
     }
     onCreate(item, variant)
   }
 
   return (
+    <>
     <div className={styles.body}>
       <div className={styles.createForm}>
         <div className="form-group">
@@ -626,7 +818,11 @@ function CreateProductForm({
             />
           </div>
           <div className="form-group">
-            <label className="form-label form-label--required">Unit cost</label>
+            {costOptional ? (
+              <label className="form-label">Expected unit cost <span className="text-tertiary font-normal">(Optional)</span></label>
+            ) : (
+              <label className="form-label form-label--required">Unit cost</label>
+            )}
             <div className="input-prefix">
               <span className="input-prefix__label">₹</span>
               <input
@@ -652,13 +848,54 @@ function CreateProductForm({
           </div>
         </div>
 
-        <div className={styles.footerActions} style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn--ghost" onClick={onCancel}>Cancel</button>
-          <button type="button" className="btn btn--primary" disabled={!canCreate} onClick={handleCreate}>
-            Create &amp; Add to Order
-          </button>
+        <div className="form-group">
+          <div className={styles.fieldHeaderRow}>
+            <label className="form-label">Enable Expiry Date</label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={hasExpiry}
+              className={`toggle ${hasExpiry ? '' : 'toggle--off'}`}
+              onClick={() => setHasExpiry(v => !v)}
+            >
+              <span className="toggle__dot" />
+            </button>
+          </div>
+          <span className="form-hint">Track expiration dates and shelf life for this product</span>
+
+          {hasExpiry && (
+            <div className="form-group" style={{ marginTop: 'var(--space-2)' }}>
+              <label className="form-label">Expires within (days)</label>
+              <input
+                className="form-input"
+                type="number" min="1"
+                placeholder="e.g. 30"
+                autoFocus
+                value={expiresWithinDays}
+                onChange={e => setExpiresWithinDays(e.target.value === '' ? '' : Number(e.target.value))}
+              />
+            </div>
+          )}
         </div>
+
+        <AttributesStrip
+          names={attributeNames}
+          values={attrValues}
+          onValueChange={(attrName, value) => setAttrValues(prev => ({ ...prev, [attrName]: value }))}
+          onAddName={handleAddAttrName}
+          onRemoveName={handleRemoveAttrName}
+        />
       </div>
     </div>
+
+    <div className={styles.footer}>
+      <div className={styles.footerActions} style={{ justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn--ghost" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn btn--primary" disabled={!canCreate} onClick={handleCreate}>
+          Create &amp; Add to Order
+        </button>
+      </div>
+    </div>
+    </>
   )
 }
