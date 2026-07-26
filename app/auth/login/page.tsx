@@ -1,18 +1,38 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { resolveLoginDestination } from '@/lib/services/auth'
 import styles from './login.module.css'
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    searchParams.get('sessionExpired') ? 'Your session expired. Please log in again.' : null
+  )
+
+  useEffect(() => {
+    // The server (middleware) already dropped the stale cookies. This clears
+    // whatever the browser client itself was still holding in local storage,
+    // so it stops silently retrying the dead refresh token in the background.
+    if (searchParams.get('sessionExpired')) {
+      createClient().auth.signOut({ scope: 'local' })
+    }
+  }, [searchParams])
 
   async function handleLogin() {
     setError(null)
