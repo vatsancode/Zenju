@@ -787,6 +787,26 @@
   gap: var(--space-4);
 }
 
+@media (max-width: 1240px) {
+  .newPoLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .newPoSidebar {
+    position: static;
+  }
+
+  .newPoFormGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .newPoFormGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .newPoSummaryCard {
   display: flex;
   flex-direction: column;
@@ -1066,6 +1086,11 @@
   gap: var(--space-5) var(--space-4);
 }
 
+.newPoCollapsedGridExtra {
+  padding-top: var(--space-4);
+  border-top: 0.5px solid var(--color-border-light);
+}
+
 .newPoCollapsedField {
   display: flex;
   flex-direction: column;
@@ -1238,13 +1263,13 @@
 .newPoDetailSections {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-8);
 }
 
 .newPoDetailSection {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .newPoSubLabel {

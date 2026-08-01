@@ -86,6 +86,12 @@ export default function AddProductModal({
     )
   }
 
+  // Rendered once at the top level (not inside the scrollable product list)
+  // so its own fixed-position overlay isn't nested inside another
+  // scrolling container, which was preventing the popup's internal
+  // Attributes section from scrolling.
+  const quickAddItem = quickAddVariantFor ? products.find(p => p.id === quickAddVariantFor) ?? null : null
+
   const selectedCount = Object.keys(selections).length
 
   function selectionKey(itemId: string, variantId: string) {
@@ -308,18 +314,6 @@ export default function AddProductModal({
                       </span>
                     </div>
 
-                    {singleVariant && quickAddVariantFor === item.id && (
-                      <QuickAddVariantPopup
-                        defaultCost={item.cost_price}
-                        defaultSellingPrice={item.mrp}
-                        costOptional={costOptional}
-                        attributeNames={item.attributes || []}
-                        onAddAttribute={name => handleAddAttributeToItem(item, name)}
-                        onCancel={() => setQuickAddVariantFor(null)}
-                        onCreate={fields => handleQuickAddVariant(item, fields)}
-                      />
-                    )}
-
                     {!singleVariant && isExpanded && (
                       <div className={styles.variantPanel}>
                         <button
@@ -329,18 +323,6 @@ export default function AddProductModal({
                         >
                           <Plus size={14} /> Add new variant
                         </button>
-
-                        {quickAddVariantFor === item.id && (
-                          <QuickAddVariantPopup
-                            defaultCost={item.cost_price}
-                            defaultSellingPrice={item.mrp}
-                            costOptional={costOptional}
-                            attributeNames={item.attributes || []}
-                            onAddAttribute={name => handleAddAttributeToItem(item, name)}
-                            onCancel={() => setQuickAddVariantFor(null)}
-                            onCreate={fields => handleQuickAddVariant(item, fields)}
-                          />
-                        )}
 
                         {variants.map(v => {
                           const key = selectionKey(item.id, v.id)
@@ -432,6 +414,18 @@ export default function AddProductModal({
           </div>
         )}
       </div>
+
+      {quickAddItem && (
+        <QuickAddVariantPopup
+          defaultCost={quickAddItem.cost_price}
+          defaultSellingPrice={quickAddItem.mrp}
+          costOptional={costOptional}
+          attributeNames={quickAddItem.attributes || []}
+          onAddAttribute={name => handleAddAttributeToItem(quickAddItem, name)}
+          onCancel={() => setQuickAddVariantFor(null)}
+          onCreate={fields => handleQuickAddVariant(quickAddItem, fields)}
+        />
+      )}
     </div>
   )
 }
@@ -614,29 +608,36 @@ function AttributesStrip({
             <p className={styles.attrStripEmpty}>No attributes yet — e.g. Size, Color, Grade.</p>
           )}
 
-          {names.map((attrName, idx) => (
-            <div className="form-group" key={`${attrName}-${idx}`}>
-              <label className={styles.attrStripFieldLabel}>
-                <span>{attrName}</span>
-                {onRemoveName && (
-                  <button
-                    type="button"
-                    className={styles.attrToolbarChipRemove}
-                    onClick={() => onRemoveName(idx)}
-                    title={`Remove ${attrName}`}
-                  >
-                    <X size={11} />
-                  </button>
-                )}
-              </label>
-              <input
-                className="form-input"
-                placeholder={`e.g. ${attrName} value`}
-                value={values[attrName] ?? ''}
-                onChange={e => onValueChange(attrName, e.target.value)}
-              />
+          {/* Own scroll region, capped short — so with many attributes the
+              list scrolls internally instead of pushing the "Add attribute"
+              button (and the rest of the popup) out of view. */}
+          {names.length > 0 && (
+            <div className={styles.attrStripFields}>
+              {names.map((attrName, idx) => (
+                <div className="form-group" key={`${attrName}-${idx}`}>
+                  <label className={styles.attrStripFieldLabel}>
+                    <span>{attrName}</span>
+                    {onRemoveName && (
+                      <button
+                        type="button"
+                        className={styles.attrToolbarChipRemove}
+                        onClick={() => onRemoveName(idx)}
+                        title={`Remove ${attrName}`}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </label>
+                  <input
+                    className="form-input"
+                    placeholder={`e.g. ${attrName} value`}
+                    value={values[attrName] ?? ''}
+                    onChange={e => onValueChange(attrName, e.target.value)}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          )}
 
           {addingNew ? (
             <div className={styles.inlineCreate}>

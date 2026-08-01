@@ -29,18 +29,18 @@ type DraftItem = {
   qty_received?: number | ''
 }
 
-const PURCHASE_STATUS_OPTIONS: { value: PurchaseOrderStatus; label: string; icon: LucideIcon; hint: string }[] = [
-  { value: 'draft', label: 'Draft', icon: FileText, hint: 'Not sent to the vendor yet — you can keep editing.' },
-  { value: 'ordered', label: 'Ordered', icon: Truck, hint: 'Placed with the vendor, awaiting delivery.' },
-  { value: 'partially_received', label: 'Partially Received', icon: PackageOpen, hint: 'Some of the stock has arrived — the rest is still on the way.' },
-  { value: 'received', label: 'Received', icon: PackageCheck, hint: 'Stock has already arrived.' },
-  { value: 'cancelled', label: 'Cancelled', icon: Ban, hint: 'This order was called off.' },
+const PURCHASE_STATUS_OPTIONS: { value: PurchaseOrderStatus; label: string; icon: LucideIcon }[] = [
+  { value: 'draft', label: 'Draft', icon: FileText },
+  { value: 'ordered', label: 'Ordered', icon: Truck },
+  { value: 'partially_received', label: 'Partially Received', icon: PackageOpen },
+  { value: 'received', label: 'Received', icon: PackageCheck },
+  { value: 'cancelled', label: 'Cancelled', icon: Ban },
 ]
 
-const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string; hint: string }[] = [
-  { value: 'pending', label: 'Pending', hint: 'Nothing paid to the vendor yet.' },
-  { value: 'partially_paid', label: 'Partially Paid', hint: 'Some amount has been paid.' },
-  { value: 'paid', label: 'Paid', hint: 'Fully settled with the vendor.' },
+const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string }[] = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'partially_paid', label: 'Partially Paid' },
+  { value: 'paid', label: 'Paid' },
 ]
 
 const DEFAULT_PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'UPI', 'Cheque']
@@ -481,42 +481,52 @@ export default function PurchaseOrderForm({ editPo }: { editPo?: MockPurchaseOrd
                       <span className={styles.newPoCollapsedFieldValue}>{invoiceNumber}</span>
                     </div>
                   )}
-
-                  {status === 'ordered' && expectedDate && (
-                    <div className={styles.newPoCollapsedField}>
-                      <span className={styles.newPoCollapsedFieldLabel}>Expected Delivery</span>
-                      <span className={styles.newPoCollapsedFieldValue}>{formatDateShort(expectedDate)}</span>
-                    </div>
-                  )}
-
-                  {isReceivedFlow && receivedDate && (
-                    <div className={styles.newPoCollapsedField}>
-                      <span className={styles.newPoCollapsedFieldLabel}>Received Date</span>
-                      <span className={styles.newPoCollapsedFieldValue}>{formatDateShort(receivedDate)}</span>
-                    </div>
-                  )}
-
-                  {paymentStatus === 'partially_paid' && paidAmount !== '' && (
-                    <div className={styles.newPoCollapsedField}>
-                      <span className={styles.newPoCollapsedFieldLabel}>Paid Amount</span>
-                      <span className={styles.newPoCollapsedFieldValue}>{formatINR(Number(paidAmount))}</span>
-                    </div>
-                  )}
-
-                  {paymentStatus === 'paid' && paymentDate && (
-                    <div className={styles.newPoCollapsedField}>
-                      <span className={styles.newPoCollapsedFieldLabel}>Payment Date</span>
-                      <span className={styles.newPoCollapsedFieldValue}>{formatDateShort(paymentDate)}</span>
-                    </div>
-                  )}
-
-                  {paymentStatus === 'paid' && paymentMethod && (
-                    <div className={styles.newPoCollapsedField}>
-                      <span className={styles.newPoCollapsedFieldLabel}>Payment Method</span>
-                      <span className={styles.newPoCollapsedFieldValue}>{paymentMethod}</span>
-                    </div>
-                  )}
                 </div>
+
+                {(
+                  (status === 'ordered' && expectedDate) ||
+                  (isReceivedFlow && receivedDate) ||
+                  (paymentStatus === 'partially_paid' && paidAmount !== '') ||
+                  (paymentStatus === 'paid' && paymentDate) ||
+                  (paymentStatus === 'paid' && paymentMethod)
+                ) && (
+                  <div className={`${styles.newPoCollapsedGrid} ${styles.newPoCollapsedGridExtra}`}>
+                    {status === 'ordered' && expectedDate && (
+                      <div className={styles.newPoCollapsedField}>
+                        <span className={styles.newPoCollapsedFieldLabel}>Expected Delivery</span>
+                        <span className={styles.newPoCollapsedFieldValue}>{formatDateShort(expectedDate)}</span>
+                      </div>
+                    )}
+
+                    {isReceivedFlow && receivedDate && (
+                      <div className={styles.newPoCollapsedField}>
+                        <span className={styles.newPoCollapsedFieldLabel}>Received Date</span>
+                        <span className={styles.newPoCollapsedFieldValue}>{formatDateShort(receivedDate)}</span>
+                      </div>
+                    )}
+
+                    {paymentStatus === 'partially_paid' && paidAmount !== '' && (
+                      <div className={styles.newPoCollapsedField}>
+                        <span className={styles.newPoCollapsedFieldLabel}>Paid Amount</span>
+                        <span className={styles.newPoCollapsedFieldValue}>{formatINR(Number(paidAmount))}</span>
+                      </div>
+                    )}
+
+                    {paymentStatus === 'paid' && paymentDate && (
+                      <div className={styles.newPoCollapsedField}>
+                        <span className={styles.newPoCollapsedFieldLabel}>Payment Date</span>
+                        <span className={styles.newPoCollapsedFieldValue}>{formatDateShort(paymentDate)}</span>
+                      </div>
+                    )}
+
+                    {paymentStatus === 'paid' && paymentMethod && (
+                      <div className={styles.newPoCollapsedField}>
+                        <span className={styles.newPoCollapsedFieldLabel}>Payment Method</span>
+                        <span className={styles.newPoCollapsedFieldValue}>{paymentMethod}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -525,7 +535,6 @@ export default function PurchaseOrderForm({ editPo }: { editPo?: MockPurchaseOrd
 
                 {/* Vendor & order info */}
                 <div className={styles.newPoDetailSection}>
-                  <span className={styles.newPoSubLabel}>Vendor &amp; Order Info</span>
                   <div className={styles.newPoFormGrid}>
                     <div className="form-group">
                       <label className="form-label form-label--required">Vendor</label>
@@ -583,9 +592,6 @@ export default function PurchaseOrderForm({ editPo }: { editPo?: MockPurchaseOrd
                 <div className={styles.newPoDetailSection}>
                   <div className={styles.segmentHead}>
                     <span className={styles.newPoSubLabel}>Order Status</span>
-                    <span className={styles.segmentHint}>
-                      {PURCHASE_STATUS_OPTIONS.find(o => o.value === status)?.hint}
-                    </span>
                   </div>
                   <div className={styles.segmented} role="radiogroup" aria-label="Order status">
                     {PURCHASE_STATUS_OPTIONS.map(opt => {
@@ -629,9 +635,6 @@ export default function PurchaseOrderForm({ editPo }: { editPo?: MockPurchaseOrd
                 <div className={styles.newPoDetailSection}>
                   <div className={styles.segmentHead}>
                     <span className={styles.newPoSubLabel}>Payment</span>
-                    <span className={styles.segmentHint}>
-                      {PAYMENT_STATUS_OPTIONS.find(o => o.value === paymentStatus)?.hint}
-                    </span>
                   </div>
                   <div className={styles.segmented} role="radiogroup" aria-label="Payment status">
                     {PAYMENT_STATUS_OPTIONS.map(opt => (
