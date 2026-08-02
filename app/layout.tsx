@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import '@/styles/globals.css'
+import StorageAccessGuard from '@/components/system/StorageAccessGuard'
 
 export const metadata: Metadata = {
   title: 'ZenJu',
@@ -21,7 +22,9 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <StorageAccessGuard>{children}</StorageAccessGuard>
+      </body>
     </html>
   )
 }
