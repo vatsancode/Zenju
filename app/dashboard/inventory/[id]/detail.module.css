@@ -328,7 +328,7 @@
 .variantTableFull {
   --w-actions: 108px;
   --w-selling: 140px;
-  --w-qty:      96px;
+  --w-qty:     176px;
 }
 
 /* Shared sticky behaviour */
@@ -427,6 +427,13 @@ th.colActions, td.colActions {
   font-weight: 500;
   color: var(--color-text-secondary);
   text-align: left;
+}
+
+.addStockBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .rowEditing td {

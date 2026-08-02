@@ -1,6 +1,7 @@
 import type { createClient } from '@/lib/supabase/server'
 import { table } from '@/lib/supabase/server'
 import type { InventoryItem } from '@/types/database'
+import { createDefaultVariant } from '@/lib/services/variants'
 
 type ServiceClient = Awaited<ReturnType<typeof createClient>>
 
@@ -28,6 +29,11 @@ export interface InventoryItemWithDetails extends InventoryItem {
   unit_name: string
   attribute_ids: string[]
   attribute_names: string[]
+  // Parallel to attribute_ids/attribute_names — the attribute_definitions.id
+  // for this item, in the same display order. Variants key their per-row
+  // attribute values off this id (not attribute_id), so callers that need to
+  // write variant_attribute_values need it alongside the display names.
+  attribute_definition_ids: string[]
 }
 
 const ITEM_SELECT_WITH_DETAILS =
@@ -53,6 +59,7 @@ function hydrateItem(row: RawItemRow): InventoryItemWithDetails {
     unit_name: units?.name ?? '',
     attribute_ids: defs.map(d => d.attribute_id),
     attribute_names: defs.map(d => d.attributes?.name ?? ''),
+    attribute_definition_ids: defs.map(d => d.id),
   }
 }
 
@@ -72,6 +79,29 @@ export async function listInventoryItems(
   }
 
   return { ok: true, data: (data as unknown as RawItemRow[]).map(hydrateItem) }
+}
+
+export async function getInventoryItem(
+  supabase: ServiceClient,
+  businessId: string,
+  itemId: string
+): Promise<ServiceResult<InventoryItemWithDetails>> {
+  const { data, error } = await table(supabase, 'inventory_items')
+    .select(ITEM_SELECT_WITH_DETAILS)
+    .eq('id', itemId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[inventory:get] fetch failed', error)
+    return { ok: false, error: 'Could not load the product. Please try again.', status: 500 }
+  }
+  const row = data as unknown as RawItemRow | null
+  if (!row || row.business_id !== businessId) {
+    return { ok: false, error: 'Product not found', status: 404 }
+  }
+
+  return { ok: true, data: hydrateItem(row) }
 }
 
 async function validateName(
@@ -227,6 +257,13 @@ export async function createInventoryItem(
       await table(supabase, 'inventory_items').delete().eq('id', itemId)
       return { ok: false, error: GENERIC_SAVE_ERROR, status: 500 }
     }
+  }
+
+  const defaultVariant = await createDefaultVariant(supabase, itemId)
+  if (!defaultVariant.ok) {
+    // Roll back — a product with no variant at all can't be sold or stocked.
+    await table(supabase, 'inventory_items').delete().eq('id', itemId)
+    return { ok: false, error: GENERIC_SAVE_ERROR, status: 500 }
   }
 
   const { data: created, error: fetchError } = await table(supabase, 'inventory_items')

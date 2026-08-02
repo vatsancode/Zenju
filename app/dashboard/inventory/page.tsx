@@ -720,9 +720,8 @@ export default function InventoryPage() {
       const body = await res.json()
       if (!res.ok) { setCreateError(body.error || 'Could not create the product.'); return }
 
-      setItems(prev => [body.data, ...prev])
-      showToast(`"${body.data.name}" product created`)
       handleCloseDrawer()
+      router.push(`/dashboard/inventory/${body.data.id}?new=1`)
     } catch {
       setCreateError('Could not create the product. Please check your connection.')
     } finally {

@@ -2,45 +2,18 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Package, ShoppingCart, Layers, TrendingUp, Search, Printer, Filter, ChevronDown, Check, Plus, X, Pencil } from 'lucide-react'
-import { mockInventoryItems, mockSuppliers, mockUser, formatINR, formatDateShort } from '@/lib/mock-data'
+import { ArrowLeft, Package, ShoppingCart, Layers, TrendingUp, Search, Filter, ChevronDown, Check, Plus, X, Pencil } from 'lucide-react'
+import { formatINR, formatDateShort } from '@/lib/utils/format'
+import type { InventoryItemWithDetails } from '@/lib/services/inventory'
+import type { VariantWithDetails } from '@/lib/services/variants'
+import type { BatchWithSupplier } from '@/lib/services/batches'
+import type { MovementWithBranch } from '@/lib/services/movements'
 import Pagination from '@/components/ui/Pagination'
 import styles from '../variant.module.css'
 
 const PAGE_SIZE = 10
 
 type Tab = 'stock' | 'purchases' | 'consumption' | 'analytics'
-
-// Local shape matching the records the Inventory pages build up in session state —
-// kept independent of types/database.ts since this is a UI-only mock build.
-interface LocalVariant { id: string; code: string; name?: string; attributes: string[]; quantity: number }
-interface LocalItem {
-  id: string
-  name: string
-  category: string
-  unit: string
-  cost_price: number
-  mrp: number
-  notes: string | null
-  attributes: string[]
-  variants?: LocalVariant[]
-}
-
-// Deterministic pseudo-random generator seeded from a string — keeps demo
-// numbers stable across renders/navigations without needing shared state.
-function seededRandom(seed: string) {
-  let h = 1779033703 ^ seed.length
-  for (let i = 0; i < seed.length; i++) {
-    h = Math.imul(h ^ seed.charCodeAt(i), 3432918353)
-    h = (h << 13) | (h >>> 19)
-  }
-  return function () {
-    h = Math.imul(h ^ (h >>> 16), 2246822507)
-    h = Math.imul(h ^ (h >>> 13), 3266489909)
-    h ^= h >>> 16
-    return (h >>> 0) / 4294967296
-  }
-}
 
 const DEADSTOCK_DAYS = 45
 
@@ -63,8 +36,6 @@ const STOCK_STATUS_OPTIONS = [
   { value: 'fresh', label: 'Fresh' },
 ] as const
 
-const TAX_RATE = 0.05
-
 const PURCHASE_FILTER_DEFS = [
   { key: 'vendor', label: 'Vendor' },
   { key: 'date', label: 'Date' },
@@ -79,42 +50,18 @@ const CONSUMPTION_FILTER_DEFS = [
 
 type ConsumptionFilterKey = typeof CONSUMPTION_FILTER_DEFS[number]['key']
 
+// Matches the real movement_type enum (minus 'purchase', which the
+// Purchase History tab already covers via inventory_batches).
 const CONSUMPTION_SOURCE_OPTIONS = [
   { value: 'sale', label: 'POS Sale' },
-  { value: 'used', label: 'Used' },
-  { value: 'adjustment', label: 'Stock Adjustment' },
+  { value: 'manual_adjustment', label: 'Stock Adjustment' },
   { value: 'waste', label: 'Waste / Damage' },
-  { value: 'transfer', label: 'Branch Transfer' },
 ] as const
 
 const CONSUMPTION_SOURCE_BADGE: Record<string, string> = {
   sale: 'success',
-  used: 'info',
-  adjustment: 'warning',
+  manual_adjustment: 'warning',
   waste: 'danger',
-  transfer: 'neutral',
-}
-
-// ─── Log Consumption popup — mark a batch as used/waste/adjustment/transfer ──
-
-const LOG_CONSUMPTION_TYPES = [
-  { value: 'used', label: 'Used' },
-  { value: 'waste', label: 'Waste / Damage' },
-  { value: 'adjustment', label: 'Stock Adjustment' },
-  { value: 'transfer', label: 'Transfer to Branch' },
-] as const
-
-type LogConsumptionType = typeof LOG_CONSUMPTION_TYPES[number]['value']
-
-interface ConsumptionEvent {
-  eventId: string
-  date: string
-  qty: number
-  source: string
-  reference: string
-  branch: string
-  notes?: string
-  performedBy?: string
 }
 
 // ─── Date range filter — shared by Current Stock, Purchase History, Consumption ──
@@ -257,8 +204,89 @@ export default function VariantDetailPage() {
   const itemId = params.id as string
   const variantId = params.variantId as string
 
-  const item = (mockInventoryItems as unknown as LocalItem[]).find(i => i.id === itemId) ?? null
-  const variant = item?.variants?.find(v => v.id === variantId) ?? null
+  // ── Real data ─────────────────────────────────────────────────────────────
+  const [item, setItem] = useState<InventoryItemWithDetails | null>(null)
+  const [itemLoading, setItemLoading] = useState(true)
+  const [itemLoadError, setItemLoadError] = useState('')
+
+  const [variant, setVariant] = useState<VariantWithDetails | null>(null)
+  const [variantLoading, setVariantLoading] = useState(true)
+  const [variantLoadError, setVariantLoadError] = useState('')
+
+  const [batches, setBatches] = useState<BatchWithSupplier[]>([])
+  const [batchesLoading, setBatchesLoading] = useState(true)
+  const [batchesLoadError, setBatchesLoadError] = useState('')
+
+  const [movements, setMovements] = useState<MovementWithBranch[]>([])
+  const [movementsLoading, setMovementsLoading] = useState(true)
+  const [movementsLoadError, setMovementsLoadError] = useState('')
+
+  async function loadItem() {
+    setItemLoading(true)
+    setItemLoadError('')
+    try {
+      const res = await fetch(`/api/inventory/${itemId}`)
+      const body = await res.json()
+      if (!res.ok) { setItemLoadError(body.error || 'Product not found'); setItem(null); return }
+      setItem(body.data)
+    } catch {
+      setItemLoadError('Could not load the product. Please check your connection.')
+    } finally {
+      setItemLoading(false)
+    }
+  }
+
+  async function loadVariant() {
+    setVariantLoading(true)
+    setVariantLoadError('')
+    try {
+      const res = await fetch(`/api/inventory/${itemId}/variants`)
+      const body = await res.json()
+      if (!res.ok) { setVariantLoadError(body.error || 'Variant not found'); setVariant(null); return }
+      const found = (body.data as VariantWithDetails[]).find(v => v.id === variantId) ?? null
+      if (!found) { setVariantLoadError('Variant not found'); setVariant(null); return }
+      setVariant(found)
+    } catch {
+      setVariantLoadError('Could not load the variant. Please check your connection.')
+    } finally {
+      setVariantLoading(false)
+    }
+  }
+
+  async function loadBatches() {
+    setBatchesLoading(true)
+    setBatchesLoadError('')
+    try {
+      const res = await fetch(`/api/inventory/${itemId}/variants/${variantId}/batches`)
+      const body = await res.json()
+      if (!res.ok) { setBatchesLoadError(body.error || 'Could not load stock history.'); return }
+      setBatches(body.data)
+    } catch {
+      setBatchesLoadError('Could not load stock history. Please check your connection.')
+    } finally {
+      setBatchesLoading(false)
+    }
+  }
+
+  async function loadMovements() {
+    setMovementsLoading(true)
+    setMovementsLoadError('')
+    try {
+      const res = await fetch(`/api/inventory/${itemId}/variants/${variantId}/movements`)
+      const body = await res.json()
+      if (!res.ok) { setMovementsLoadError(body.error || 'Could not load consumption history.'); return }
+      setMovements(body.data)
+    } catch {
+      setMovementsLoadError('Could not load consumption history. Please check your connection.')
+    } finally {
+      setMovementsLoading(false)
+    }
+  }
+
+  useEffect(() => { loadItem() }, [itemId])
+  useEffect(() => { loadVariant() }, [itemId, variantId])
+  useEffect(() => { loadBatches() }, [itemId, variantId])
+  useEffect(() => { loadMovements() }, [itemId, variantId])
 
   const [activeTab, setActiveTab] = useState<Tab>('stock')
   const [stockSearch, setStockSearch] = useState('')
@@ -295,70 +323,33 @@ export default function VariantDetailPage() {
   const [consumptionDateTo, setConsumptionDateTo] = useState('')
   const [consumptionPage, setConsumptionPage] = useState(1)
 
-  const [loggedConsumptionEvents, setLoggedConsumptionEvents] = useState<ConsumptionEvent[]>([])
-  const [showLogConsumptionModal, setShowLogConsumptionModal] = useState(false)
-  const [logLotId, setLogLotId] = useState('')
-  const [logQty, setLogQty] = useState<number | ''>('')
-  const [logType, setLogType] = useState<LogConsumptionType>('used')
-  const [logTransferBranch, setLogTransferBranch] = useState('')
-  const [logNotes, setLogNotes] = useState('')
-  const [logPerformedBy, setLogPerformedBy] = useState(mockUser.name)
-  const [logError, setLogError] = useState('')
-
   const displayName = item
-    ? `${item.name}${variant?.code ? ` — ${variant.code}` : ''}`
+    ? `${item.name}${variant?.variant_code ? ` — ${variant.variant_code}` : ''}`
     : 'Variant'
 
-  // ── Demo data, deterministically generated from the variant/item id ──────
-  const rand = useMemo(() => seededRandom(variantId || itemId || 'demo'), [variantId, itemId])
-
-  const baseCost = item?.cost_price && item.cost_price > 0 ? item.cost_price : 400 + Math.round(rand() * 300)
-  const sellingPrice = item?.mrp && item.mrp > 0 ? item.mrp : Math.round(baseCost * 1.3)
-
-  const purchaseHistory = useMemo(() => {
-    const now = Date.now()
-    const entries: { date: string; vendor: string; qty: number; unit_cost: number }[] = []
-    let cost = baseCost * 0.9
-    for (let i = 5; i >= 0; i--) {
-      cost = cost * (0.96 + rand() * 0.12)
-      const vendor = mockSuppliers[Math.floor(rand() * mockSuppliers.length)]
-      entries.push({
-        date: new Date(now - i * 22 * 86400000).toISOString(),
-        vendor: vendor?.name ?? 'Unknown vendor',
-        qty: 10 + Math.round(rand() * 40),
-        unit_cost: Math.round(cost),
-      })
-    }
-    return entries
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseCost, rand])
-
+  // ── Current Stock — batches still holding quantity ────────────────────────
   const stockLots = useMemo(() => {
-    return purchaseHistory.map((p, i) => ({
-      ...p,
-      barcode: `890${String(Math.floor(rand() * 1_000_000_000)).padStart(9, '0')}`,
-      isDeadStock: daysSince(p.date) > DEADSTOCK_DAYS,
-      lotId: `${variantId || itemId}-${i}`,
-    }))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [purchaseHistory])
+    return batches
+      .filter(b => b.quantity_remaining > 0)
+      .map(b => ({ ...b, isDeadStock: daysSince(b.received_at) > DEADSTOCK_DAYS }))
+  }, [batches])
 
   const stockVendors = useMemo(
-    () => Array.from(new Set(stockLots.map(l => l.vendor))),
-    [stockLots]
+    () => Array.from(new Set(batches.map(b => b.supplier_name).filter((v): v is string => !!v))),
+    [batches]
   )
 
   const filteredStockLots = useMemo(() => {
-    return [...stockLots].reverse().filter(lot => {
+    return [...stockLots].filter(lot => {
       if (statusFilters.length > 0) {
         const matchesStatus = statusFilters.includes(lot.isDeadStock ? 'deadstock' : 'fresh')
         if (!matchesStatus) return false
       }
-      if (vendorFilters.length > 0 && !vendorFilters.includes(lot.vendor)) return false
-      if ((stockDateFrom || stockDateTo) && !matchesDateRange(lot.date, stockDateFrom, stockDateTo)) return false
+      if (vendorFilters.length > 0 && (!lot.supplier_name || !vendorFilters.includes(lot.supplier_name))) return false
+      if ((stockDateFrom || stockDateTo) && !matchesDateRange(lot.received_at, stockDateFrom, stockDateTo)) return false
       if (!stockSearch) return true
       const q = stockSearch.toLowerCase()
-      return lot.vendor.toLowerCase().includes(q) || lot.barcode.includes(q)
+      return (lot.supplier_name ?? '').toLowerCase().includes(q) || (lot.batch_number ?? '').toLowerCase().includes(q)
     })
   }, [stockLots, stockSearch, statusFilters, vendorFilters, stockDateFrom, stockDateTo])
 
@@ -396,23 +387,15 @@ export default function VariantDetailPage() {
     setStockSearch('')
   }
 
-  const purchaseHistoryWithTax = useMemo(() => {
-    return purchaseHistory.map((p, i) => {
-      const subtotal = p.qty * p.unit_cost
-      const tax = Math.round(subtotal * TAX_RATE)
-      return { ...p, subtotal, tax, total: subtotal + tax, purchaseId: `${variantId || itemId}-ph-${i}` }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [purchaseHistory])
-
+  // ── Purchase History — every batch ever recorded ──────────────────────────
   const filteredPurchaseHistory = useMemo(() => {
-    return [...purchaseHistoryWithTax].reverse().filter(p => {
-      if (purchaseVendorFilters.length > 0 && !purchaseVendorFilters.includes(p.vendor)) return false
-      if ((purchaseDateFrom || purchaseDateTo) && !matchesDateRange(p.date, purchaseDateFrom, purchaseDateTo)) return false
+    return [...batches].filter(b => {
+      if (purchaseVendorFilters.length > 0 && (!b.supplier_name || !purchaseVendorFilters.includes(b.supplier_name))) return false
+      if ((purchaseDateFrom || purchaseDateTo) && !matchesDateRange(b.received_at, purchaseDateFrom, purchaseDateTo)) return false
       if (!purchaseSearch) return true
-      return p.vendor.toLowerCase().includes(purchaseSearch.toLowerCase())
+      return (b.supplier_name ?? '').toLowerCase().includes(purchaseSearch.toLowerCase())
     })
-  }, [purchaseHistoryWithTax, purchaseVendorFilters, purchaseSearch, purchaseDateFrom, purchaseDateTo])
+  }, [batches, purchaseVendorFilters, purchaseSearch, purchaseDateFrom, purchaseDateTo])
 
   useEffect(() => { setPurchasePage(1) }, [purchaseSearch, purchaseVendorFilters, purchaseDateFrom, purchaseDateTo])
 
@@ -446,37 +429,16 @@ export default function VariantDetailPage() {
     setPurchaseSearch('')
   }
 
-  const generatedConsumptionEvents = useMemo((): ConsumptionEvent[] => {
-    const now = Date.now()
-    const sources = ['sale', 'sale', 'sale', 'adjustment', 'waste'] as const
-    return Array.from({ length: 18 }).map((_, i) => {
-      const source = sources[Math.floor(rand() * sources.length)]
-      const prefix = source === 'sale' ? 'SALE' : source === 'adjustment' ? 'ADJ' : 'WASTE'
-      return {
-        eventId: `${variantId || itemId}-cons-${i}`,
-        date: new Date(now - i * 9 * 86400000 - Math.round(rand() * 5 * 86400000)).toISOString(),
-        qty: 1 + Math.round(rand() * 9),
-        source,
-        reference: `${prefix}-${1000 + Math.floor(rand() * 9000)}`,
-        branch: 'Main Branch',
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rand])
-
-  const consumptionEvents = useMemo(
-    () => [...loggedConsumptionEvents, ...generatedConsumptionEvents],
-    [loggedConsumptionEvents, generatedConsumptionEvents]
-  )
-
+  // ── Consumption — real stock_movements (empty until logging is built) ─────
   const filteredConsumptionEvents = useMemo(() => {
-    return [...consumptionEvents].sort((a, b) => b.date.localeCompare(a.date)).filter(e => {
-      if (consumptionSourceFilters.length > 0 && !consumptionSourceFilters.includes(e.source)) return false
-      if ((consumptionDateFrom || consumptionDateTo) && !matchesDateRange(e.date, consumptionDateFrom, consumptionDateTo)) return false
+    return [...movements].filter(e => {
+      if (consumptionSourceFilters.length > 0 && !consumptionSourceFilters.includes(e.movement_type)) return false
+      if ((consumptionDateFrom || consumptionDateTo) && !matchesDateRange(e.created_at, consumptionDateFrom, consumptionDateTo)) return false
       if (!consumptionSearch) return true
-      return e.reference.toLowerCase().includes(consumptionSearch.toLowerCase())
+      const ref = `${e.reference_type ?? ''} ${e.reference_id ?? ''}`.toLowerCase()
+      return ref.includes(consumptionSearch.toLowerCase())
     })
-  }, [consumptionEvents, consumptionSourceFilters, consumptionSearch, consumptionDateFrom, consumptionDateTo])
+  }, [movements, consumptionSourceFilters, consumptionSearch, consumptionDateFrom, consumptionDateTo])
 
   useEffect(() => { setConsumptionPage(1) }, [consumptionSearch, consumptionSourceFilters, consumptionDateFrom, consumptionDateTo])
 
@@ -510,71 +472,68 @@ export default function VariantDetailPage() {
     setConsumptionSearch('')
   }
 
-  const selectedLogLot = stockLots.find(l => l.lotId === logLotId) ?? null
+  // ── Analytics — derived from real batches, oldest first for the trend ─────
+  const batchesAsc = useMemo(
+    () => [...batches].sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime()),
+    [batches]
+  )
 
-  function openLogConsumptionModal() {
-    setLogLotId(stockLots[0]?.lotId ?? '')
-    setLogQty('')
-    setLogType('used')
-    setLogTransferBranch('')
-    setLogNotes('')
-    setLogPerformedBy(mockUser.name)
-    setLogError('')
-    setShowLogConsumptionModal(true)
-  }
-
-  function closeLogConsumptionModal() {
-    setShowLogConsumptionModal(false)
-  }
-
-  function handleLogConsumption() {
-    if (!selectedLogLot) { setLogError('Please select a batch.'); return }
-    if (!logQty || Number(logQty) <= 0) { setLogError('Enter a quantity greater than 0.'); return }
-    if (Number(logQty) > selectedLogLot.qty) { setLogError(`Only ${selectedLogLot.qty} ${item?.unit ?? ''} available in this batch.`); return }
-    if (logType === 'transfer' && !logTransferBranch) { setLogError('Select a destination branch.'); return }
-
-    const prefix = logType === 'used' ? 'USED' : logType === 'waste' ? 'WASTE' : logType === 'adjustment' ? 'ADJ' : 'XFER'
-    const newEvent: ConsumptionEvent = {
-      eventId: `manual-${Date.now()}`,
-      date: new Date().toISOString(),
-      qty: Number(logQty),
-      source: logType,
-      reference: `${prefix}-${selectedLogLot.barcode.slice(-4)}`,
-      branch: logType === 'transfer' ? logTransferBranch : 'Main Branch',
-      notes: logNotes.trim() || undefined,
-      performedBy: logPerformedBy.trim() || mockUser.name,
-    }
-
-    setLoggedConsumptionEvents(prev => [newEvent, ...prev])
-    closeLogConsumptionModal()
-    setActiveTab('consumption')
-  }
-
-  const latestCost = purchaseHistory[purchaseHistory.length - 1]?.unit_cost ?? baseCost
-  const prevCost = purchaseHistory[purchaseHistory.length - 2]?.unit_cost ?? latestCost
-  const avgCost = Math.round(purchaseHistory.reduce((s, p) => s + p.unit_cost, 0) / purchaseHistory.length)
-  const minCost = Math.min(...purchaseHistory.map(p => p.unit_cost))
-  const maxCost = Math.max(...purchaseHistory.map(p => p.unit_cost))
+  const latestCost = batchesAsc.length > 0 ? batchesAsc[batchesAsc.length - 1].purchase_price : 0
+  const prevCost = batchesAsc.length > 1 ? batchesAsc[batchesAsc.length - 2].purchase_price : latestCost
+  const avgCost = batchesAsc.length > 0
+    ? Math.round(batchesAsc.reduce((s, b) => s + b.purchase_price, 0) / batchesAsc.length)
+    : 0
+  const minCost = batchesAsc.length > 0 ? Math.min(...batchesAsc.map(b => b.purchase_price)) : 0
+  const maxCost = batchesAsc.length > 0 ? Math.max(...batchesAsc.map(b => b.purchase_price)) : 0
   const trendPct = prevCost > 0 ? Math.round(((latestCost - prevCost) / prevCost) * 100) : 0
+  const maxChartCost = Math.max(1, ...batchesAsc.map(b => b.purchase_price))
 
   const vendorStats = useMemo(() => {
     const byVendor = new Map<string, { qty: number; totalCost: number; count: number }>()
-    purchaseHistory.forEach(p => {
-      const cur = byVendor.get(p.vendor) ?? { qty: 0, totalCost: 0, count: 0 }
-      cur.qty += p.qty
-      cur.totalCost += p.qty * p.unit_cost
+    batches.forEach(b => {
+      const vendor = b.supplier_name ?? 'No vendor recorded'
+      const cur = byVendor.get(vendor) ?? { qty: 0, totalCost: 0, count: 0 }
+      cur.qty += b.quantity_received
+      cur.totalCost += b.quantity_received * b.purchase_price
       cur.count += 1
-      byVendor.set(p.vendor, cur)
+      byVendor.set(vendor, cur)
     })
     return Array.from(byVendor.entries()).map(([vendor, s]) => ({
       vendor,
       orders: s.count,
-      avgCost: Math.round(s.totalCost / s.qty),
+      avgCost: s.qty > 0 ? Math.round(s.totalCost / s.qty) : 0,
       totalQty: s.qty,
     }))
-  }, [purchaseHistory])
+  }, [batches])
 
-  const maxChartCost = Math.max(...purchaseHistory.map(p => p.unit_cost))
+  // ── Early returns: loading / not found ────────────────────────────────────
+
+  if (itemLoading || variantLoading) {
+    return (
+      <div>
+        <button className={styles.backArrow} onClick={() => router.push(`/dashboard/inventory/${itemId}`)} title="Back to item">
+          <ArrowLeft size={18} />
+        </button>
+        <div className="empty-state">
+          <p className="empty-state__desc">Loading variant…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!item || !variant) {
+    return (
+      <div>
+        <button className={styles.backArrow} onClick={() => router.push(`/dashboard/inventory/${itemId}`)} title="Back to item">
+          <ArrowLeft size={18} />
+        </button>
+        <div className="empty-state">
+          <p className="empty-state__title">{!item ? 'Product not found' : 'Variant not found'}</p>
+          <p className="empty-state__desc">{itemLoadError || variantLoadError || 'This item does not exist.'}</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -587,20 +546,20 @@ export default function VariantDetailPage() {
           <div>
             <h1 className={styles.variantTitle}>{displayName}</h1>
             <div className={styles.variantMeta}>
-              {variant?.code && <span className={styles.variantCode}>{variant.code}</span>}
+              {variant.variant_code && <span className={styles.variantCode}>{variant.variant_code}</span>}
               <span className={styles.metaDot} />
-              <span className={styles.metaText}>{item?.category ?? 'Uncategorized'}</span>
+              <span className={styles.metaText}>{item.category_name ?? 'Uncategorized'}</span>
               <span className={styles.metaDot} />
-              <span className={styles.metaText}>{variant?.quantity ?? 0} {item?.unit ?? 'units'} in stock</span>
+              <span className={styles.metaText}>{variant.current_stock} {item.unit_name} in stock</span>
             </div>
           </div>
         </div>
         <div className={styles.headerActions}>
-          <button className="btn btn--outline" onClick={openLogConsumptionModal}>
+          <button className="btn btn--outline" disabled title="Coming soon — consumption logging isn't built yet">
             <Layers size={14} />
             Consumption
           </button>
-          <button className="btn btn--outline">
+          <button className="btn btn--outline" disabled title="Coming soon">
             <Pencil size={14} />
             Edit Variant
           </button>
@@ -611,19 +570,19 @@ export default function VariantDetailPage() {
       <div className={styles.variantSummaryBar}>
         <div className={styles.summaryItem}>
           <span className={styles.summaryLabel}>Variant</span>
-          <span className={styles.summaryValue}>{variant?.name || 'Unnamed'}</span>
+          <span className={styles.summaryValue}>{variant.variant_code || 'Unnamed'}</span>
         </div>
 
-        {(item?.attributes ?? []).length > 0 && (
+        {item.attribute_names.length > 0 && (
           <>
             <span className={styles.summaryDivider} />
             <div className={`${styles.summaryItem} ${styles.summaryItemAttrs}`}>
               <span className={styles.summaryLabel}>Attributes</span>
               <span
                 className={styles.summaryAttrsText}
-                title={(item?.attributes ?? []).map((attr, i) => `${attr}: ${variant?.attributes[i] || '—'}`).join(' · ')}
+                title={item.attribute_names.map((attr, i) => `${attr}: ${variant.attribute_values[i] || '—'}`).join(' · ')}
               >
-                {(item?.attributes ?? []).map((attr, i) => `${attr}: ${variant?.attributes[i] || '—'}`).join(' · ')}
+                {item.attribute_names.map((attr, i) => `${attr}: ${variant.attribute_values[i] || '—'}`).join(' · ')}
               </span>
             </div>
           </>
@@ -632,13 +591,15 @@ export default function VariantDetailPage() {
         <span className={styles.summaryDivider} />
         <div className={styles.summaryItem}>
           <span className={styles.summaryLabel}>Total Qty</span>
-          <span className={styles.summaryValue}>{variant?.quantity ?? 0} {item?.unit ?? ''}</span>
+          <span className={styles.summaryValue}>{variant.current_stock} {item.unit_name}</span>
         </div>
 
         <span className={styles.summaryDivider} />
         <div className={styles.summaryItem}>
           <span className={styles.summaryLabel}>Selling / Unit</span>
-          <span className={styles.summaryValue}>{formatINR(sellingPrice)}</span>
+          <span className={styles.summaryValue}>
+            {variant.selling_price != null ? formatINR(variant.selling_price) : 'Not set'}
+          </span>
         </div>
       </div>
 
@@ -666,13 +627,12 @@ export default function VariantDetailPage() {
               <Search size={14} className={styles.stockSearchIcon} />
               <input
                 className={`form-input ${styles.stockSearchInput}`}
-                placeholder="Search by vendor or barcode..."
+                placeholder="Search by vendor or batch #..."
                 value={stockSearch}
                 onChange={e => setStockSearch(e.target.value)}
               />
             </div>
 
-            {/* Filter button — opens type-selection dropdown */}
             <div className={styles.stockFilterWrap}>
               <button
                 className={`btn btn--ghost ${styles.filterBtn}${activeStockFilterCount > 0 ? ` ${styles.filterBtnActive}` : ''}`}
@@ -704,7 +664,6 @@ export default function VariantDetailPage() {
             </div>
           </div>
 
-          {/* Active filter bar — shown when any filter/search is active */}
           {(activeStockFilterTypes.length > 0 || stockSearch) && (
             <div className={styles.resultSummaryRow}>
               <span className={styles.resultSummary}>
@@ -794,7 +753,6 @@ export default function VariantDetailPage() {
                   )
                 }
 
-                // Stock Status filter
                 const displayText =
                   statusFilters.length === 0 ? 'Any'
                     : statusFilters.length === 1
@@ -856,7 +814,6 @@ export default function VariantDetailPage() {
                 )
               })}
 
-              {/* Search chip */}
               {stockSearch && (
                 <button className={styles.filterChip} onClick={() => setStockSearch('')} title="Clear search">
                   <span className={styles.filterChipLabel}>Search:</span>
@@ -865,7 +822,6 @@ export default function VariantDetailPage() {
                 </button>
               )}
 
-              {/* + Add Filter */}
               {STOCK_FILTER_DEFS.some(f => !activeStockFilterTypes.includes(f.key)) && activeStockFilterTypes.length > 0 && (
                 <div className={styles.addFilterWrap}>
                   <button
@@ -901,7 +857,16 @@ export default function VariantDetailPage() {
           )}
 
           <div className={styles.panel}>
-            {filteredStockLots.length === 0 ? (
+            {batchesLoading ? (
+              <div className="empty-state">
+                <p className="empty-state__desc">Loading stock…</p>
+              </div>
+            ) : batchesLoadError ? (
+              <div className="empty-state">
+                <p className="empty-state__title">Could not load stock</p>
+                <p className="empty-state__desc">{batchesLoadError}</p>
+              </div>
+            ) : filteredStockLots.length === 0 ? (
               <div className="empty-state">
                 <p className="empty-state__title">No stock lots found</p>
                 <p className="empty-state__desc">
@@ -912,40 +877,33 @@ export default function VariantDetailPage() {
               <table className={`data-table ${styles.stockLotsTable}`}>
                 <thead>
                   <tr>
-                    <th>Purchase Date</th>
+                    <th>Received</th>
                     <th>Vendor</th>
-                    <th>Qty</th>
-                    <th>Barcode</th>
+                    <th>Qty Remaining</th>
+                    <th>Batch #</th>
                     <th>Unit Cost</th>
                     <th>Total Value</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedStockLots.map(lot => (
-                    <tr key={lot.lotId}>
+                    <tr key={lot.id}>
                       <td>
                         <div className={styles.purchaseDateCell}>
-                          <span>{formatDateShort(lot.date)}</span>
-                          <span className={styles.daysChip}>{daysSince(lot.date)}d ago</span>
+                          <span>{formatDateShort(lot.received_at)}</span>
+                          <span className={styles.daysChip}>{daysSince(lot.received_at)}d ago</span>
                         </div>
                       </td>
-                      <td>{lot.vendor}</td>
+                      <td>{lot.supplier_name ?? <span className="text-tertiary">—</span>}</td>
                       <td>
                         <div className={styles.qtyCell}>
-                          <span>{lot.qty} {item?.unit ?? ''}</span>
+                          <span>{lot.quantity_remaining} {item.unit_name}</span>
                           {lot.isDeadStock && <span className="badge badge--danger">Deadstock</span>}
                         </div>
                       </td>
-                      <td>
-                        <div className={styles.barcodeCell}>
-                          <span className={styles.barcodeText}>{lot.barcode}</span>
-                          <button type="button" className={styles.printBtn} title="Print barcode">
-                            <Printer size={13} />
-                          </button>
-                        </div>
-                      </td>
-                      <td>{formatINR(lot.unit_cost)}</td>
-                      <td>{formatINR(lot.qty * lot.unit_cost)}</td>
+                      <td>{lot.batch_number ?? <span className="text-tertiary">—</span>}</td>
+                      <td>{formatINR(lot.purchase_price)}</td>
+                      <td>{formatINR(lot.quantity_remaining * lot.purchase_price)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -976,7 +934,6 @@ export default function VariantDetailPage() {
               />
             </div>
 
-            {/* Filter button — opens type-selection dropdown */}
             <div className={styles.stockFilterWrap}>
               <button
                 className={`btn btn--ghost ${styles.filterBtn}${activePurchaseFilterCount > 0 ? ` ${styles.filterBtnActive}` : ''}`}
@@ -1008,7 +965,6 @@ export default function VariantDetailPage() {
             </div>
           </div>
 
-          {/* Active filter bar — shown when any filter/search is active */}
           {(activePurchaseFilterTypes.length > 0 || purchaseSearch) && (
             <div className={styles.resultSummaryRow}>
               <span className={styles.resultSummary}>
@@ -1037,7 +993,6 @@ export default function VariantDetailPage() {
                   )
                 }
 
-                // Vendor filter
                 const displayText =
                   purchaseVendorFilters.length === 0 ? 'Any'
                     : purchaseVendorFilters.length === 1 ? purchaseVendorFilters[0]
@@ -1098,7 +1053,6 @@ export default function VariantDetailPage() {
                 )
               })}
 
-              {/* Search chip */}
               {purchaseSearch && (
                 <button className={styles.filterChip} onClick={() => setPurchaseSearch('')} title="Clear search">
                   <span className={styles.filterChipLabel}>Search:</span>
@@ -1107,7 +1061,6 @@ export default function VariantDetailPage() {
                 </button>
               )}
 
-              {/* + Add Filter */}
               {PURCHASE_FILTER_DEFS.some(f => !activePurchaseFilterTypes.includes(f.key)) && activePurchaseFilterTypes.length > 0 && (
                 <div className={styles.addFilterWrap}>
                   <button
@@ -1143,7 +1096,16 @@ export default function VariantDetailPage() {
           )}
 
           <div className={styles.panel}>
-            {filteredPurchaseHistory.length === 0 ? (
+            {batchesLoading ? (
+              <div className="empty-state">
+                <p className="empty-state__desc">Loading purchases…</p>
+              </div>
+            ) : batchesLoadError ? (
+              <div className="empty-state">
+                <p className="empty-state__title">Could not load purchases</p>
+                <p className="empty-state__desc">{batchesLoadError}</p>
+              </div>
+            ) : filteredPurchaseHistory.length === 0 ? (
               <div className="empty-state">
                 <p className="empty-state__title">No purchases found</p>
                 <p className="empty-state__desc">
@@ -1156,21 +1118,19 @@ export default function VariantDetailPage() {
                   <tr>
                     <th>Date</th>
                     <th>Vendor</th>
-                    <th>Qty</th>
+                    <th>Qty Received</th>
                     <th>Unit Cost</th>
-                    <th>Tax</th>
                     <th>Line Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedPurchaseHistory.map(p => (
-                    <tr key={p.purchaseId}>
-                      <td>{formatDateShort(p.date)}</td>
-                      <td>{p.vendor}</td>
-                      <td>{p.qty}</td>
-                      <td>{formatINR(p.unit_cost)}</td>
-                      <td>{formatINR(p.tax)}</td>
-                      <td>{formatINR(p.total)}</td>
+                  {pagedPurchaseHistory.map(b => (
+                    <tr key={b.id}>
+                      <td>{formatDateShort(b.received_at)}</td>
+                      <td>{b.supplier_name ?? <span className="text-tertiary">—</span>}</td>
+                      <td>{b.quantity_received}</td>
+                      <td>{formatINR(b.purchase_price)}</td>
+                      <td>{formatINR(b.quantity_received * b.purchase_price)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1202,10 +1162,9 @@ export default function VariantDetailPage() {
             </div>
 
             <span className={styles.consumptionTotal}>
-              Total consumed: {filteredConsumptionEvents.reduce((s, e) => s + e.qty, 0)} {item?.unit ?? 'units'}
+              Total consumed: {filteredConsumptionEvents.reduce((s, e) => s + Math.abs(e.quantity_change), 0)} {item.unit_name}
             </span>
 
-            {/* Filter button — opens type-selection dropdown */}
             <div className={styles.stockFilterWrap}>
               <button
                 className={`btn btn--ghost ${styles.filterBtn}${activeConsumptionFilterCount > 0 ? ` ${styles.filterBtnActive}` : ''}`}
@@ -1237,7 +1196,6 @@ export default function VariantDetailPage() {
             </div>
           </div>
 
-          {/* Active filter bar — shown when any filter/search is active */}
           {(activeConsumptionFilterTypes.length > 0 || consumptionSearch) && (
             <div className={styles.resultSummaryRow}>
               <span className={styles.resultSummary}>
@@ -1266,7 +1224,6 @@ export default function VariantDetailPage() {
                   )
                 }
 
-                // Source filter
                 const displayText =
                   consumptionSourceFilters.length === 0 ? 'Any'
                     : consumptionSourceFilters.length === 1
@@ -1328,7 +1285,6 @@ export default function VariantDetailPage() {
                 )
               })}
 
-              {/* Search chip */}
               {consumptionSearch && (
                 <button className={styles.filterChip} onClick={() => setConsumptionSearch('')} title="Clear search">
                   <span className={styles.filterChipLabel}>Search:</span>
@@ -1344,11 +1300,22 @@ export default function VariantDetailPage() {
           )}
 
           <div className={styles.panel}>
-            {filteredConsumptionEvents.length === 0 ? (
+            {movementsLoading ? (
+              <div className="empty-state">
+                <p className="empty-state__desc">Loading consumption history…</p>
+              </div>
+            ) : movementsLoadError ? (
+              <div className="empty-state">
+                <p className="empty-state__title">Could not load consumption history</p>
+                <p className="empty-state__desc">{movementsLoadError}</p>
+              </div>
+            ) : filteredConsumptionEvents.length === 0 ? (
               <div className="empty-state">
                 <p className="empty-state__title">No consumption records found</p>
                 <p className="empty-state__desc">
-                  {consumptionSearch || activeConsumptionFilterCount > 0 ? 'Try adjusting your search or filter' : 'Consumption will appear here as stock is sold or adjusted'}
+                  {consumptionSearch || activeConsumptionFilterCount > 0
+                    ? 'Try adjusting your search or filter'
+                    : 'Consumption logging isn’t built yet, so nothing will appear here until it is.'}
                 </p>
               </div>
             ) : (
@@ -1360,22 +1327,20 @@ export default function VariantDetailPage() {
                     <th>Source</th>
                     <th>Qty Consumed</th>
                     <th>Branch</th>
-                    <th>Logged By</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedConsumptionEvents.map(e => (
-                    <tr key={e.eventId} title={e.notes}>
-                      <td>{formatDateShort(e.date)}</td>
-                      <td className={styles.barcodeText}>{e.reference}</td>
+                    <tr key={e.id} title={e.notes ?? undefined}>
+                      <td>{formatDateShort(e.created_at)}</td>
+                      <td className={styles.barcodeText}>{e.reference_type ? `${e.reference_type} ${e.reference_id ?? ''}`.trim() : '—'}</td>
                       <td>
-                        <span className={`badge badge--${CONSUMPTION_SOURCE_BADGE[e.source] ?? 'neutral'}`}>
-                          {CONSUMPTION_SOURCE_OPTIONS.find(o => o.value === e.source)?.label}
+                        <span className={`badge badge--${CONSUMPTION_SOURCE_BADGE[e.movement_type] ?? 'neutral'}`}>
+                          {CONSUMPTION_SOURCE_OPTIONS.find(o => o.value === e.movement_type)?.label ?? e.movement_type}
                         </span>
                       </td>
-                      <td>{e.qty} {item?.unit ?? ''}</td>
-                      <td>{e.branch}</td>
-                      <td>{e.performedBy ?? <span className="text-tertiary">—</span>}</td>
+                      <td>{Math.abs(e.quantity_change)} {item.unit_name}</td>
+                      <td>{e.branch_name ?? <span className="text-tertiary">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1406,7 +1371,7 @@ export default function VariantDetailPage() {
             <div className={styles.metricCard}>
               <span className={styles.metricLabel}>Average Cost</span>
               <span className={styles.metricValue}>{formatINR(avgCost)}</span>
-              <span className={styles.metricSub}>across last {purchaseHistory.length} purchases</span>
+              <span className={styles.metricSub}>across {batchesAsc.length} purchase{batchesAsc.length === 1 ? '' : 's'}</span>
             </div>
             <div className={styles.metricCard}>
               <span className={styles.metricLabel}>Lowest Cost</span>
@@ -1422,147 +1387,53 @@ export default function VariantDetailPage() {
             <div className={styles.panelHead}>
               <span className={styles.panelTitle}>Cost Trend</span>
             </div>
-            <div className={styles.chartWrap}>
-              {purchaseHistory.map((p, i) => (
-                <div key={i} className={styles.chartBarCol}>
-                  <span className={styles.chartBarValue}>{formatINR(p.unit_cost)}</span>
-                  <div className={styles.chartBar} style={{ height: `${(p.unit_cost / maxChartCost) * 100}%` }} />
-                  <span className={styles.chartBarLabel}>{formatDateShort(p.date, { withYear: false })}</span>
-                </div>
-              ))}
-            </div>
+            {batchesAsc.length === 0 ? (
+              <div className="empty-state">
+                <p className="empty-state__desc">Cost trend will appear here once purchases are recorded.</p>
+              </div>
+            ) : (
+              <div className={styles.chartWrap}>
+                {batchesAsc.map(b => (
+                  <div key={b.id} className={styles.chartBarCol}>
+                    <span className={styles.chartBarValue}>{formatINR(b.purchase_price)}</span>
+                    <div className={styles.chartBar} style={{ height: `${(b.purchase_price / maxChartCost) * 100}%` }} />
+                    <span className={styles.chartBarLabel}>{formatDateShort(b.received_at, { withYear: false })}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className={styles.panel}>
             <div className={styles.panelHead}>
               <span className={styles.panelTitle}>Vendor Comparison</span>
             </div>
-            <table className={`data-table ${styles.vendorCompareTable}`}>
-              <thead>
-                <tr>
-                  <th>Vendor</th>
-                  <th style={{ textAlign: 'right' }}>Orders</th>
-                  <th style={{ textAlign: 'right' }}>Total Qty Supplied</th>
-                  <th style={{ textAlign: 'right' }}>Avg. Cost / Unit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...vendorStats].sort((a, b) => a.avgCost - b.avgCost).map(v => (
-                  <tr key={v.vendor}>
-                    <td>{v.vendor}</td>
-                    <td style={{ textAlign: 'right' }}>{v.orders}</td>
-                    <td style={{ textAlign: 'right' }}>{v.totalQty}</td>
-                    <td style={{ textAlign: 'right' }}>{formatINR(v.avgCost)}</td>
+            {vendorStats.length === 0 ? (
+              <div className="empty-state">
+                <p className="empty-state__desc">Vendor comparison will appear here once purchases are recorded.</p>
+              </div>
+            ) : (
+              <table className={`data-table ${styles.vendorCompareTable}`}>
+                <thead>
+                  <tr>
+                    <th>Vendor</th>
+                    <th style={{ textAlign: 'right' }}>Orders</th>
+                    <th style={{ textAlign: 'right' }}>Total Qty Supplied</th>
+                    <th style={{ textAlign: 'right' }}>Avg. Cost / Unit</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── Log Consumption popup ── */}
-      {showLogConsumptionModal && (
-        <div className="modal-overlay" onClick={closeLogConsumptionModal}>
-          <div className={`modal ${styles.logConsumptionModal}`} onClick={e => e.stopPropagation()}>
-            <h3 className={`modal__title ${styles.logModalHeader}`}>Log Consumption</h3>
-
-            <div className={styles.logConsumptionFormScroll}>
-            <div className={styles.logConsumptionForm}>
-              <div className="form-group">
-                <label className="form-label form-label--required">Batch</label>
-                <select
-                  className="form-select"
-                  value={logLotId}
-                  onChange={e => setLogLotId(e.target.value)}
-                >
-                  {stockLots.length === 0 && <option value="">No stock lots available</option>}
-                  {stockLots.map(lot => (
-                    <option key={lot.lotId} value={lot.lotId}>
-                      {formatDateShort(lot.date)} · {lot.vendor} · {lot.qty} {item?.unit ?? ''} available
-                    </option>
+                </thead>
+                <tbody>
+                  {[...vendorStats].sort((a, b) => a.avgCost - b.avgCost).map(v => (
+                    <tr key={v.vendor}>
+                      <td>{v.vendor}</td>
+                      <td style={{ textAlign: 'right' }}>{v.orders}</td>
+                      <td style={{ textAlign: 'right' }}>{v.totalQty}</td>
+                      <td style={{ textAlign: 'right' }}>{formatINR(v.avgCost)}</td>
+                    </tr>
                   ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label form-label--required">Quantity</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  min="0"
-                  max={selectedLogLot?.qty}
-                  placeholder={selectedLogLot ? `Up to ${selectedLogLot.qty} ${item?.unit ?? ''}` : 'Quantity'}
-                  value={logQty}
-                  onChange={e => setLogQty(e.target.value === '' ? '' : Number(e.target.value))}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label form-label--required">Type</label>
-                <div className={styles.logTypeGrid}>
-                  {LOG_CONSUMPTION_TYPES.map(t => (
-                    <label key={t.value} className={`radio-wrap ${styles.logTypeOption}`}>
-                      <span className={`radio ${logType !== t.value ? 'radio--unchecked' : ''}`}>
-                        {logType === t.value && <span className="radio__dot" />}
-                      </span>
-                      <input
-                        type="radio"
-                        name="logType"
-                        value={t.value}
-                        checked={logType === t.value}
-                        onChange={() => setLogType(t.value)}
-                        className={styles.hiddenRadioInput}
-                      />
-                      {t.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {logType === 'transfer' && (
-                <div className="form-group">
-                  <label className="form-label form-label--required">Destination Branch</label>
-                  <select
-                    className="form-select"
-                    value={logTransferBranch}
-                    onChange={e => setLogTransferBranch(e.target.value)}
-                  >
-                    <option value="">Select branch</option>
-                    <option value="Main Branch">Main Branch</option>
-                  </select>
-                  <span className="form-hint">Only one branch is set up right now — more branches can be added in Settings later.</span>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label">Logged by</label>
-                <input
-                  className="form-input"
-                  placeholder="Staff name"
-                  value={logPerformedBy}
-                  onChange={e => setLogPerformedBy(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Notes <span className="text-tertiary font-normal">(Optional)</span></label>
-                <textarea
-                  className="form-textarea"
-                  placeholder="Reason or additional context..."
-                  value={logNotes}
-                  onChange={e => setLogNotes(e.target.value)}
-                />
-              </div>
-
-              {logError && <div className="form-error">{logError}</div>}
-            </div>
-            </div>
-
-            <div className={`modal__actions ${styles.logModalFooter}`}>
-              <button className="btn btn--ghost" onClick={closeLogConsumptionModal}>Cancel</button>
-              <button className="btn btn--primary" onClick={handleLogConsumption}>Log Consumption</button>
-            </div>
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
