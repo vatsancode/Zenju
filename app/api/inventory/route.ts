@@ -1,16 +1,27 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentBusinessId } from '@/lib/supabase/session'
-import { asTrimmedString, createInventoryItem, listInventoryItems } from '@/lib/services/inventory'
+import { asTrimmedString, createInventoryItemWithStock, listInventoryItems, type StockRowInput } from '@/lib/services/inventory'
+
+interface StockRowBody {
+  quantity?: unknown
+  expiry_date?: unknown
+}
 
 interface CreateInventoryItemBody {
   name?: unknown
   category_id?: unknown
   unit_id?: unknown
   has_expiry?: unknown
-  expires_within_days?: unknown
   notes?: unknown
   attribute_ids?: unknown
+  has_variants?: unknown
+  variant_name?: unknown
+  code?: unknown
+  purchase_cost?: unknown
+  target_profit_percent?: unknown
+  selling_price?: unknown
+  stock_rows?: unknown
 }
 
 export async function GET() {
@@ -50,13 +61,24 @@ export async function POST(request: NextRequest) {
   const categoryId = typeof body.category_id === 'string' && body.category_id ? body.category_id : null
   const unitId = asTrimmedString(body.unit_id)
   const hasExpiry = body.has_expiry === true
-  const expiresWithinDays =
-    typeof body.expires_within_days === 'number' && Number.isFinite(body.expires_within_days)
-      ? body.expires_within_days
-      : null
   const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null
   const attributeIds = Array.isArray(body.attribute_ids)
     ? body.attribute_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+  const hasVariants = body.has_variants === true
+  const variantName = typeof body.variant_name === 'string' && body.variant_name.trim() ? body.variant_name.trim() : null
+  const code = typeof body.code === 'string' && body.code.trim() ? body.code.trim() : null
+  const purchaseCost = typeof body.purchase_cost === 'number' && Number.isFinite(body.purchase_cost) ? body.purchase_cost : 0
+  const targetProfitPercent =
+    typeof body.target_profit_percent === 'number' && Number.isFinite(body.target_profit_percent)
+      ? body.target_profit_percent
+      : null
+  const sellingPrice = typeof body.selling_price === 'number' && Number.isFinite(body.selling_price) ? body.selling_price : 0
+  const stockRows: StockRowInput[] = Array.isArray(body.stock_rows)
+    ? (body.stock_rows as StockRowBody[]).map(row => ({
+        quantity: typeof row.quantity === 'number' && Number.isFinite(row.quantity) ? row.quantity : 0,
+        expiryDate: typeof row.expiry_date === 'string' && row.expiry_date ? row.expiry_date : null,
+      }))
     : []
 
   if (!name) return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 })
@@ -65,14 +87,20 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient()
 
   try {
-    const result = await createInventoryItem(supabase, businessId, {
+    const result = await createInventoryItemWithStock(supabase, businessId, {
       name,
       categoryId,
       unitId,
       hasExpiry,
-      expiresWithinDays,
       notes,
       attributeIds,
+      hasVariants,
+      variantName,
+      code,
+      purchaseCost,
+      targetProfitPercent,
+      sellingPrice,
+      stockRows,
     })
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })

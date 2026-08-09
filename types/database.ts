@@ -148,7 +148,7 @@ export interface InventoryItem {
   category_id: string | null
   unit_id: string
   has_expiry: boolean
-  expires_within_days: number | null
+  has_variants: boolean
   image_url: string | null
   notes: string | null
   created_at: string
@@ -169,6 +169,7 @@ export interface InventoryVariant {
   variant_code: string | null
   purchase_price: number | null
   selling_price: number | null
+  target_profit_percent: number | null
   par_stock: number | null
   availability_status: InventoryAvailability
   created_at: string

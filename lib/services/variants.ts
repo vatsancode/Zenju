@@ -150,10 +150,58 @@ export async function listVariantsForItem(
   }
 }
 
+// Single-variant counterpart to listVariantsForItem — used by pages that
+// only need one variant (e.g. the variant detail page) so they don't have
+// to fetch every variant on the item just to find one by id.
+export async function getVariantForItem(
+  supabase: ServiceClient,
+  businessId: string,
+  itemId: string,
+  variantId: string
+): Promise<ServiceResult<VariantWithDetails>> {
+  if (!(await itemBelongsToBusiness(supabase, businessId, itemId))) {
+    return { ok: false, error: 'Product not found', status: 404 }
+  }
+
+  const { data, error } = await table(supabase, 'inventory_variants')
+    .select('*')
+    .eq('id', variantId)
+    .eq('inventory_item_id', itemId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[variants:get] fetch failed', error)
+    return { ok: false, error: 'Could not load the variant. Please try again.', status: 500 }
+  }
+  if (!data) {
+    return { ok: false, error: 'Variant not found', status: 404 }
+  }
+
+  const row = data as InventoryVariant
+  const defIds = await getAttributeDefinitionIds(supabase, itemId)
+  if (defIds === null) return { ok: false, error: 'Could not load the variant. Please try again.', status: 500 }
+
+  const valuesByVariant = await getValuesByVariant(supabase, [row.id], defIds)
+  if (valuesByVariant === null) return { ok: false, error: 'Could not load the variant. Please try again.', status: 500 }
+
+  const stockByVariant = await getStockByVariant(supabase, [row.id])
+  if (stockByVariant === null) return { ok: false, error: 'Could not load the variant. Please try again.', status: 500 }
+
+  return {
+    ok: true,
+    data: {
+      ...row,
+      current_stock: stockByVariant[row.id] ?? 0,
+      attribute_values: valuesByVariant[row.id] ?? [],
+    },
+  }
+}
+
 export interface UpdateVariantInput {
   variant_code?: string | null
   selling_price?: number | null
   purchase_price?: number | null
+  target_profit_percent?: number | null
   par_stock?: number | null
   // Parallel to the item's attribute_definition_ids — pass the full array
   // whenever attribute values are being saved (partial saves aren't

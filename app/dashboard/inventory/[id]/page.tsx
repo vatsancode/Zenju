@@ -2,13 +2,15 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Pencil, X, Trash2, Download, Eye, Check, Plus, Image as ImageIcon, Layers, FileText, Upload } from 'lucide-react'
+import { ArrowLeft, Pencil, X, Trash2, Download, Eye, Check, Plus, Image as ImageIcon, Layers, FileText, Upload, ChevronDown } from 'lucide-react'
 import type { InventoryItemWithDetails } from '@/lib/services/inventory'
 import type { CategoryWithCount } from '@/lib/services/categories'
 import type { UnitWithUsage } from '@/lib/services/units'
 import type { AttributeWithUsage } from '@/lib/services/attributes'
 import type { VariantWithDetails } from '@/lib/services/variants'
+import { consumeCreatedProduct } from '@/lib/utils/nav-handoff'
 import CustomSelect from '@/components/ui/CustomSelect'
+import PricingFields from '@/components/inventory/PricingFields'
 import styles from './detail.module.css'
 import inv from '../inventory.module.css'
 
@@ -18,6 +20,10 @@ type Tab = 'variants' | 'description' | 'images'
 
 type ToastState = { message: string; type: 'success' | 'warning' | 'danger' | 'info' }
 
+// Pricing is only editable here for a product with no variants — with
+// multiple variants there's no single "the" price, so the drawer hides
+// these and points at the per-variant rows in the table instead. Stock
+// isn't a field here at all, same as the listing page's Edit Product drawer.
 type EditForm = {
   name: string
   selected_attributes: string[]
@@ -25,8 +31,15 @@ type EditForm = {
   category: string
   subcategory: string
   has_expiry: boolean
-  expires_within_days: number | ''
+  // Freely toggleable when the product has at most one variant; locked on
+  // once there are 2+ (see item.variant_count) — turning it off would leave
+  // no well-defined single default variant.
+  has_variants: boolean
   description: string
+  purchase_cost: number | ''
+  target_profit_percent: number | ''
+  selling_price: number | ''
+  pricing_driven_by: 'target_profit' | 'selling_price'
 }
 
 type ImageFile = {
@@ -46,15 +59,21 @@ export default function InventoryDetailPage() {
   const searchParams = useSearchParams()
   const id = params.id as string
 
+  // Just-created product handed off by the Add Product drawer, if we got
+  // here straight from a create (has_variants on) — read once so the item
+  // and its first variant render on the very first paint instead of a
+  // loading screen while they re-fetch data the create request just returned.
+  const [handoff] = useState(() => consumeCreatedProduct(id))
+
   // ── Main item state ────────────────────────────────────────────────────────
-  const [item, setItem] = useState<InventoryItemWithDetails | null>(null)
-  const [itemLoading, setItemLoading] = useState(true)
+  const [item, setItem] = useState<InventoryItemWithDetails | null>(handoff?.item ?? null)
+  const [itemLoading, setItemLoading] = useState(!handoff)
   const [itemLoadError, setItemLoadError] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>('variants')
 
   // ── Variants tab state ─────────────────────────────────────────────────────
-  const [variants, setVariants] = useState<VariantWithDetails[]>([])
-  const [variantsLoading, setVariantsLoading] = useState(true)
+  const [variants, setVariants] = useState<VariantWithDetails[]>(handoff ? [handoff.variant] : [])
+  const [variantsLoading, setVariantsLoading] = useState(!handoff)
   const [variantsLoadError, setVariantsLoadError] = useState('')
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [rowDraft, setRowDraft] = useState<VariantRowDraft | null>(null)
@@ -94,7 +113,7 @@ export default function InventoryDetailPage() {
   const [attributeSaving, setAttributeSaving] = useState(false)
 
   // ── Description tab state ──────────────────────────────────────────────────
-  const [description, setDescription] = useState('')
+  const [description, setDescription] = useState(handoff?.item.notes ?? '')
   const [descSaved, setDescSaved] = useState(false)
   const [descError, setDescError] = useState('')
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -108,10 +127,18 @@ export default function InventoryDetailPage() {
   const [showEditDrawer, setShowEditDrawer] = useState(false)
   const [editForm, setEditForm] = useState<EditForm>({
     name: '', selected_attributes: [], unit: '', category: '', subcategory: '',
-    has_expiry: false, expires_within_days: '', description: '',
+    has_expiry: false, has_variants: false, description: '',
+    purchase_cost: '', target_profit_percent: '', selling_price: '', pricing_driven_by: 'target_profit',
   })
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
+  // The single variant this product's pricing belongs to, when it has no
+  // variants — variants[0], since a no-variants product always has exactly
+  // one. Null while has_variants is true, or before variants have loaded.
+  const [editVariantId, setEditVariantId] = useState<string | null>(null)
+  // Attributes/Description — collapsed by default like Add Product, but
+  // opened automatically when the product already has values there.
+  const [showEditMoreDetails, setShowEditMoreDetails] = useState(false)
   const [confirmAttrRemoval, setConfirmAttrRemoval] = useState<string[] | null>(null)
 
   const [editAddingAttr, setEditAddingAttr] = useState(false)
@@ -231,8 +258,10 @@ export default function InventoryDetailPage() {
     }
   }
 
-  useEffect(() => { loadItem() }, [id])
-  useEffect(() => { loadVariants() }, [id])
+  // Hand-off data was just returned by the create request itself — no need
+  // to immediately re-fetch and flash back to a loading state for it.
+  useEffect(() => { if (!handoff) loadItem() }, [id])
+  useEffect(() => { if (!handoff) loadVariants() }, [id])
   useEffect(() => { loadCategories() }, [])
   useEffect(() => { loadUnits() }, [])
   useEffect(() => { loadAttributes() }, [])
@@ -385,7 +414,6 @@ export default function InventoryDetailPage() {
           category_id: item.category_id,
           unit_id: item.unit_id,
           has_expiry: item.has_expiry,
-          expires_within_days: item.expires_within_days,
           notes: value.trim() || null,
           attribute_ids: item.attribute_ids,
         }),
@@ -565,6 +593,12 @@ export default function InventoryDetailPage() {
     const isRoot = own ? own.parent_id === null : true
     const parent = own && !isRoot ? categories.find(c => c.id === own.parent_id) : null
 
+    // Pricing only applies to a single, unambiguous variant — reuse the
+    // already-loaded variants list rather than fetching again. Fetched
+    // whenever there's at most one variant, regardless of has_variants'
+    // current value, since the toggle can be flipped live in this drawer.
+    const pricingVariant = item.variant_count <= 1 ? variants[0] : undefined
+
     setEditForm({
       name: item.name,
       selected_attributes: [...item.attribute_names],
@@ -572,9 +606,15 @@ export default function InventoryDetailPage() {
       category: isRoot ? (own?.name ?? '') : (parent?.name ?? ''),
       subcategory: isRoot ? '' : (own?.name ?? ''),
       has_expiry: item.has_expiry,
-      expires_within_days: item.expires_within_days ?? '',
+      has_variants: item.has_variants,
       description: item.notes ?? '',
+      purchase_cost: pricingVariant?.purchase_price ?? '',
+      target_profit_percent: pricingVariant?.target_profit_percent ?? '',
+      selling_price: pricingVariant?.selling_price ?? '',
+      pricing_driven_by: 'target_profit',
     })
+    setEditVariantId(pricingVariant?.id ?? null)
+    setShowEditMoreDetails(item.attribute_names.length > 0 || !!item.notes)
     setEditAddingAttr(false)
     setEditAddingUnit(false)
     setEditAddingCategory(false)
@@ -588,6 +628,8 @@ export default function InventoryDetailPage() {
     setShowEditDrawer(false)
     setEditError('')
     setConfirmAttrRemoval(null)
+    setEditVariantId(null)
+    setShowEditMoreDetails(false)
   }
 
   async function handleSaveEdit(confirmAttributeRemoval = false) {
@@ -610,6 +652,18 @@ export default function InventoryDetailPage() {
       .map(name => attributes.find(a => a.name === name)?.id)
       .filter((attrId): attrId is string => !!attrId)
 
+    const editingPricing = !editForm.has_variants && !!editVariantId
+    if (editingPricing) {
+      if (editForm.purchase_cost === '' || Number(editForm.purchase_cost) <= 0) {
+        setEditError('Purchase cost must be a positive number.')
+        return
+      }
+      if (editForm.selling_price === '' || Number(editForm.selling_price) <= 0) {
+        setEditError('Selling price must be a positive number.')
+        return
+      }
+    }
+
     setEditSaving(true)
     setEditError('')
     try {
@@ -621,9 +675,7 @@ export default function InventoryDetailPage() {
           category_id: category?.id ?? null,
           unit_id: unit.id,
           has_expiry: editForm.has_expiry,
-          expires_within_days: editForm.has_expiry && editForm.expires_within_days !== ''
-            ? Number(editForm.expires_within_days)
-            : null,
+          has_variants: editForm.has_variants,
           notes: editForm.description.trim() || null,
           attribute_ids: attributeIds,
           confirm_attribute_removal: confirmAttributeRemoval,
@@ -638,6 +690,24 @@ export default function InventoryDetailPage() {
         }
         setEditError(body.error || 'Could not save the product.')
         return
+      }
+
+      if (editingPricing) {
+        const variantRes = await fetch(`/api/inventory/${item.id}/variants/${editVariantId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            purchase_price: Number(editForm.purchase_cost),
+            selling_price: Number(editForm.selling_price),
+            target_profit_percent: editForm.target_profit_percent === '' ? null : Number(editForm.target_profit_percent),
+          }),
+        })
+        const variantBody = await variantRes.json()
+        if (!variantRes.ok) {
+          setItem(body.data)
+          setEditError(variantBody.error || 'Product saved, but pricing could not be updated.')
+          return
+        }
       }
 
       setItem(body.data)
@@ -964,79 +1034,6 @@ export default function InventoryDetailPage() {
                     onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))} />
                 </div>
 
-                {/* Attributes */}
-                <div className="form-group">
-                  <label className="form-label">Attributes</label>
-
-                  {editForm.selected_attributes.length > 0 && (
-                    <div className={inv.attrChipsRow}>
-                      {editForm.selected_attributes.map(attr => (
-                        <span key={attr} className={inv.attrChip}>
-                          {attr}
-                          <button type="button" className={inv.attrChipRemove}
-                            onClick={() => removeEditSelectedAttribute(attr)} title={`Remove ${attr}`}>
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {editAddingAttr ? (
-                    <div className={inv.attrAddRow}>
-                      <div className={inv.attrInputWrap}>
-                        <input
-                          className="form-input"
-                          autoFocus
-                          placeholder="Type attribute name and press Enter…"
-                          value={editNewAttrInput}
-                          onChange={e => setEditNewAttrInput(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') handleCreateEditAttribute(editNewAttrInput)
-                            if (e.key === 'Escape') { setEditAddingAttr(false); setEditNewAttrInput('') }
-                          }}
-                          disabled={attributeSaving}
-                        />
-                        {editAttrSuggestions.length > 0 && (
-                          <div className={inv.attrSuggestions}>
-                            {editAttrSuggestions.map(attr => (
-                              <button
-                                key={attr}
-                                type="button"
-                                className={inv.attrSuggestionItem}
-                                onMouseDown={() => {
-                                  addEditSelectedAttribute(attr)
-                                  setEditNewAttrInput('')
-                                  setEditAddingAttr(false)
-                                }}
-                              >
-                                {attr}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnConfirm}`}
-                        title="Add attribute" onClick={() => handleCreateEditAttribute(editNewAttrInput)} disabled={attributeSaving}>
-                        {attributeSaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnCancel}`}
-                        title="Cancel" onClick={() => { setEditAddingAttr(false); setEditNewAttrInput('') }} disabled={attributeSaving}>
-                        <X size={15} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button type="button" className={inv.addAttrBtn}
-                      onClick={() => setEditAddingAttr(true)} disabled={attributesLoading}>
-                      + Add attribute
-                    </button>
-                  )}
-
-                  <span className="form-hint">
-                    Attributes define what varies between this product&apos;s variants (e.g. Size, Color).
-                  </span>
-                </div>
-
                 {/* Unit */}
                 <div className="form-group">
                   <label className="form-label form-label--required">Unit</label>
@@ -1059,82 +1056,204 @@ export default function InventoryDetailPage() {
                   )}
                 </div>
 
-                {/* Categorization */}
-                <div className={inv.sectionLabel}>Categorization</div>
+                {/* Category + Subcategory, side by side */}
+                <div className={inv.fieldsRow}>
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
+                    {!editAddingCategory ? (
+                      <CustomSelect value={editForm.category} placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
+                        options={[...allCategories.map(c => ({ value: c, label: c })), { value: '__new__', label: '+ Create new category', isAction: true }]}
+                        onChange={v => { if (v === '__new__') setEditAddingCategory(true); else setEditForm(prev => ({ ...prev, category: v, subcategory: '' })) }} />
+                    ) : (
+                      <div className={inv.inlineCreate}>
+                        <input ref={newEditCategoryInputRef} className="form-input" placeholder="e.g. Nuts, Spices"
+                          value={newEditCategoryInput} onChange={e => setNewEditCategoryInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddEditCategory(); if (e.key === 'Escape') setEditAddingCategory(false) }}
+                          disabled={categorySaving} />
+                        <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnConfirm}`} onClick={handleAddEditCategory} disabled={categorySaving}>
+                          {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                        </button>
+                        <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnCancel}`} onClick={() => setEditAddingCategory(false)} disabled={categorySaving}><X size={15} /></button>
+                      </div>
+                    )}
+                  </div>
 
-                {/* Category */}
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  {!editAddingCategory ? (
-                    <CustomSelect value={editForm.category} placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
-                      options={[...allCategories.map(c => ({ value: c, label: c })), { value: '__new__', label: '+ Create new category', isAction: true }]}
-                      onChange={v => { if (v === '__new__') setEditAddingCategory(true); else setEditForm(prev => ({ ...prev, category: v, subcategory: '' })) }} />
-                  ) : (
-                    <div className={inv.inlineCreate}>
-                      <input ref={newEditCategoryInputRef} className="form-input" placeholder="e.g. Nuts, Spices"
-                        value={newEditCategoryInput} onChange={e => setNewEditCategoryInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAddEditCategory(); if (e.key === 'Escape') setEditAddingCategory(false) }}
-                        disabled={categorySaving} />
-                      <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnConfirm}`} onClick={handleAddEditCategory} disabled={categorySaving}>
-                        {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnCancel}`} onClick={() => setEditAddingCategory(false)} disabled={categorySaving}><X size={15} /></button>
-                    </div>
-                  )}
+                  <div className="form-group">
+                    <label className="form-label">Subcategory <span className="text-tertiary font-normal">(Optional)</span></label>
+                    {!editAddingSubcategory ? (
+                      <CustomSelect value={editForm.subcategory}
+                        placeholder={editForm.category ? 'None' : 'Select a category first'}
+                        options={
+                          editForm.category
+                            ? [{ value: '', label: 'None' }, ...getSubcategoriesFor(editForm.category).map(s => ({ value: s.name, label: s.name })), { value: '__new__', label: '+ Create new subcategory', isAction: true }]
+                            : []
+                        }
+                        onChange={v => { if (v === '__new__') setEditAddingSubcategory(true); else setEditForm(prev => ({ ...prev, subcategory: v })) }} />
+                    ) : (
+                      <div className={inv.inlineCreate}>
+                        <input ref={newEditSubcategoryInputRef} className="form-input" placeholder="e.g. Premium, Organic"
+                          value={newEditSubcategoryInput} onChange={e => setNewEditSubcategoryInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddEditSubcategory(); if (e.key === 'Escape') setEditAddingSubcategory(false) }}
+                          disabled={subcategorySaving} />
+                        <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnConfirm}`} onClick={handleAddEditSubcategory} disabled={subcategorySaving}>
+                          {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                        </button>
+                        <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnCancel}`} onClick={() => setEditAddingSubcategory(false)} disabled={subcategorySaving}><X size={15} /></button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Subcategory */}
-                <div className="form-group">
-                  <label className="form-label">Subcategory <span className="text-tertiary font-normal">(Optional)</span></label>
-                  {!editAddingSubcategory ? (
-                    <CustomSelect value={editForm.subcategory}
-                      placeholder={editForm.category ? 'None' : 'Select a category first'}
-                      options={
-                        editForm.category
-                          ? [{ value: '', label: 'None' }, ...getSubcategoriesFor(editForm.category).map(s => ({ value: s.name, label: s.name })), { value: '__new__', label: '+ Create new subcategory', isAction: true }]
-                          : []
-                      }
-                      onChange={v => { if (v === '__new__') setEditAddingSubcategory(true); else setEditForm(prev => ({ ...prev, subcategory: v })) }} />
-                  ) : (
-                    <div className={inv.inlineCreate}>
-                      <input ref={newEditSubcategoryInputRef} className="form-input" placeholder="e.g. Premium, Organic"
-                        value={newEditSubcategoryInput} onChange={e => setNewEditSubcategoryInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAddEditSubcategory(); if (e.key === 'Escape') setEditAddingSubcategory(false) }}
-                        disabled={subcategorySaving} />
-                      <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnConfirm}`} onClick={handleAddEditSubcategory} disabled={subcategorySaving}>
-                        {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnCancel}`} onClick={() => setEditAddingSubcategory(false)} disabled={subcategorySaving}><X size={15} /></button>
-                    </div>
-                  )}
-                </div>
+                {/* ── Divider between "categorization" and "product settings" ── */}
+                <div className={inv.groupDivider} />
 
-                {/* Expiry toggle */}
-                <div className="form-group">
-                  <div className={inv.fieldHeaderRow}>
-                    <label className="form-label">Perishable — has expiry date</label>
+                {/* Perishable + Has variants, side by side */}
+                <div className={inv.toggleGrid}>
+                  <div className={inv.toggleCard}>
+                    <label className="form-label">Perishable</label>
                     <button type="button" role="switch" aria-checked={editForm.has_expiry}
                       className={`toggle ${editForm.has_expiry ? '' : 'toggle--off'}`}
                       onClick={() => setEditForm(prev => ({ ...prev, has_expiry: !prev.has_expiry }))}>
                       <span className="toggle__dot" />
                     </button>
                   </div>
-                  {editForm.has_expiry && (
-                    <div className="form-group" style={{ marginTop: 'var(--space-2)' }}>
-                      <label className="form-label">Expires within (days)</label>
-                      <input className="form-input" type="number" min="1" placeholder="e.g. 30"
-                        value={editForm.expires_within_days}
-                        onChange={e => setEditForm(prev => ({ ...prev, expires_within_days: e.target.value === '' ? '' : Number(e.target.value) }))} />
-                    </div>
-                  )}
+
+                  <div className={inv.toggleCard}>
+                    <label className="form-label">Has variants</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={editForm.has_variants}
+                      className={`toggle ${editForm.has_variants ? '' : 'toggle--off'}`}
+                      disabled={editForm.has_variants && item.variant_count > 1}
+                      title={
+                        editForm.has_variants && item.variant_count > 1
+                          ? `Has ${item.variant_count} variants — remove the extra ones to turn this off`
+                          : undefined
+                      }
+                      style={editForm.has_variants && item.variant_count > 1 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                      onClick={() => setEditForm(prev => ({ ...prev, has_variants: !prev.has_variants }))}
+                    >
+                      <span className="toggle__dot" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Notes */}
-                <div className="form-group">
-                  <label className="form-label">Notes <span className="text-tertiary font-normal">(Optional)</span></label>
-                  <textarea className="form-textarea" value={editForm.description}
-                    onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))} />
-                </div>
+                {/* ── Divider between "product settings" and "pricing" ── */}
+                <div className={inv.groupDivider} />
+
+                {/* Pricing — only for a product with no variants; a variant
+                    product has no single price to edit here, edit each
+                    variant's row in the table below instead. */}
+                {editForm.has_variants ? (
+                  <div className="form-group">
+                    <label className="form-label">Pricing</label>
+                    <span className="form-hint">
+                      {variants.length > 1
+                        ? `This product has ${variants.length} variants — edit each variant's price in the table below.`
+                        : 'This product tracks variants — set its price per variant in the table below.'}
+                    </span>
+                  </div>
+                ) : (
+                  <PricingFields
+                    value={editForm}
+                    onChange={next => setEditForm(prev => ({ ...prev, ...next }))}
+                    sellingPriceHint="Auto-calculated from cost and target profit — edit to update the markup instead."
+                  />
+                )}
+
+                {/* Attributes + Description — collapsed unless the product
+                    already has values there. */}
+                <button
+                  type="button"
+                  className={`${inv.moreDetailsToggle} ${showEditMoreDetails ? inv.moreDetailsToggleOpen : ''}`}
+                  onClick={() => setShowEditMoreDetails(v => !v)}
+                >
+                  {showEditMoreDetails ? 'Hide attributes & description' : '+ Add attributes & description (optional)'}
+                  <ChevronDown size={14} />
+                </button>
+
+                {showEditMoreDetails && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Attributes</label>
+
+                      {editForm.selected_attributes.length > 0 && (
+                        <div className={inv.attrChipsRow}>
+                          {editForm.selected_attributes.map(attr => (
+                            <span key={attr} className={inv.attrChip}>
+                              {attr}
+                              <button type="button" className={inv.attrChipRemove}
+                                onClick={() => removeEditSelectedAttribute(attr)} title={`Remove ${attr}`}>
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {editAddingAttr ? (
+                        <div className={inv.attrAddRow}>
+                          <div className={inv.attrInputWrap}>
+                            <input
+                              className="form-input"
+                              autoFocus
+                              placeholder="Type attribute name and press Enter…"
+                              value={editNewAttrInput}
+                              onChange={e => setEditNewAttrInput(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleCreateEditAttribute(editNewAttrInput)
+                                if (e.key === 'Escape') { setEditAddingAttr(false); setEditNewAttrInput('') }
+                              }}
+                              disabled={attributeSaving}
+                            />
+                            {editAttrSuggestions.length > 0 && (
+                              <div className={inv.attrSuggestions}>
+                                {editAttrSuggestions.map(attr => (
+                                  <button
+                                    key={attr}
+                                    type="button"
+                                    className={inv.attrSuggestionItem}
+                                    onMouseDown={() => {
+                                      addEditSelectedAttribute(attr)
+                                      setEditNewAttrInput('')
+                                      setEditAddingAttr(false)
+                                    }}
+                                  >
+                                    {attr}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnConfirm}`}
+                            title="Add attribute" onClick={() => handleCreateEditAttribute(editNewAttrInput)} disabled={attributeSaving}>
+                            {attributeSaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                          </button>
+                          <button type="button" className={`${inv.attrActionBtn} ${inv.attrActionBtnCancel}`}
+                            title="Cancel" onClick={() => { setEditAddingAttr(false); setEditNewAttrInput('') }} disabled={attributeSaving}>
+                            <X size={15} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button type="button" className={inv.addAttrBtn}
+                          onClick={() => setEditAddingAttr(true)} disabled={attributesLoading}>
+                          + Add attribute
+                        </button>
+                      )}
+
+                      <span className="form-hint">
+                        Attributes define what varies between this product&apos;s variants (e.g. Size, Color).
+                      </span>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Notes <span className="text-tertiary font-normal">(Optional)</span></label>
+                      <textarea className="form-textarea" value={editForm.description}
+                        onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))} />
+                    </div>
+                  </>
+                )}
 
                 {editError && (
                   <div className={inv.errorMsg}>{editError}</div>

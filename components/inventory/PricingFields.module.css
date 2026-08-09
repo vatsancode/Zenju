@@ -1,0 +1,14 @@
+.row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+/* :global() is required — .form-group is a globals.css class, and CSS
+   Modules would otherwise hash ".form-group" into a scoped name that never
+   matches the plain "form-group" className rendered in the DOM, silently
+   no-opping the equal-width split. */
+.row > :global(.form-group) {
+  flex: 1 1 0;
+  min-width: 0;
+}

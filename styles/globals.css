@@ -725,6 +725,45 @@ p  { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-prim
 
 .input-prefix__input::placeholder { color: var(--color-text-disabled); }
 
+/* The outer .input-prefix already shows a focus ring via :focus-within —
+   suppress the global :focus-visible ring on the input itself so focus
+   doesn't draw two nested rectangles. */
+.input-prefix__input:focus-visible { outline: none; }
+
+/* Compact variant — denser drawers/forms; borderless label instead of a
+   shaded, divided prefix box. */
+.input-prefix--compact {
+  height: 36px;
+  padding: 0 var(--space-3);
+  gap: 4px;
+}
+
+.input-prefix--compact:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-blue) 15%, transparent);
+}
+
+.input-prefix--compact .input-prefix__label {
+  padding: 0;
+  background: transparent;
+  border-right: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  line-height: 1;
+}
+
+.input-prefix--compact .input-prefix__input {
+  padding: 0;
+  height: 100%;
+  font-size: var(--text-sm);
+}
+
+.input-prefix--compact .input-prefix__input::-webkit-outer-spin-button,
+.input-prefix--compact .input-prefix__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Toggle switch */
 .toggle {
   position: relative;

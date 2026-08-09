@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentBusinessId } from '@/lib/supabase/session'
-import { updateVariant, type UpdateVariantInput } from '@/lib/services/variants'
+import { getVariantForItem, updateVariant, type UpdateVariantInput } from '@/lib/services/variants'
 
 interface UpdateVariantBody {
   variant_code?: unknown
   selling_price?: unknown
   purchase_price?: unknown
+  target_profit_percent?: unknown
   par_stock?: unknown
   attribute_values?: unknown
 }
@@ -15,6 +16,29 @@ function asNullableNumber(value: unknown): number | null | undefined {
   if (value === undefined) return undefined
   if (value === null || value === '') return null
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string; variantId: string } }
+) {
+  const businessId = await getCurrentBusinessId()
+  if (!businessId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const supabase = await createClient()
+
+  try {
+    const result = await getVariantForItem(supabase, businessId, params.id, params.variantId)
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
+    }
+    return NextResponse.json({ data: result.data })
+  } catch (err) {
+    console.error('[variants:get] unexpected error', params.variantId, err)
+    return NextResponse.json({ error: 'Could not load the variant. Please try again.' }, { status: 500 })
+  }
 }
 
 export async function PATCH(
@@ -47,6 +71,12 @@ export async function PATCH(
   if (purchasePrice !== undefined) input.purchase_price = purchasePrice
   if (purchasePrice === undefined && body.purchase_price !== undefined) {
     return NextResponse.json({ error: 'Purchase price must be a number' }, { status: 400 })
+  }
+
+  const targetProfitPercent = asNullableNumber(body.target_profit_percent)
+  if (targetProfitPercent !== undefined) input.target_profit_percent = targetProfitPercent
+  if (targetProfitPercent === undefined && body.target_profit_percent !== undefined) {
+    return NextResponse.json({ error: 'Target profit % must be a number' }, { status: 400 })
   }
 
   const parStock = asNullableNumber(body.par_stock)

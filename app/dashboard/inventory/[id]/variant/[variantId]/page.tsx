@@ -8,8 +8,11 @@ import type { InventoryItemWithDetails } from '@/lib/services/inventory'
 import type { VariantWithDetails } from '@/lib/services/variants'
 import type { BatchWithSupplier } from '@/lib/services/batches'
 import type { MovementWithBranch } from '@/lib/services/movements'
+import { computeMarginAlert } from '@/lib/services/margin-alert'
+import { consumeCreatedProduct } from '@/lib/utils/nav-handoff'
 import Pagination from '@/components/ui/Pagination'
 import styles from '../variant.module.css'
+import inv from '../../../inventory.module.css'
 
 const PAGE_SIZE = 10
 
@@ -204,13 +207,20 @@ export default function VariantDetailPage() {
   const itemId = params.id as string
   const variantId = params.variantId as string
 
+  // Just-created product handed off by the Add Product drawer, if we got
+  // here straight from a create — read once so item/variant can render on
+  // the very first paint instead of showing a loading screen while they
+  // re-fetch data the create request already returned.
+  const [handoff] = useState(() => consumeCreatedProduct(itemId))
+  const handoffVariant = handoff && handoff.variant.id === variantId ? handoff.variant : null
+
   // ── Real data ─────────────────────────────────────────────────────────────
-  const [item, setItem] = useState<InventoryItemWithDetails | null>(null)
-  const [itemLoading, setItemLoading] = useState(true)
+  const [item, setItem] = useState<InventoryItemWithDetails | null>(handoff?.item ?? null)
+  const [itemLoading, setItemLoading] = useState(!handoff)
   const [itemLoadError, setItemLoadError] = useState('')
 
-  const [variant, setVariant] = useState<VariantWithDetails | null>(null)
-  const [variantLoading, setVariantLoading] = useState(true)
+  const [variant, setVariant] = useState<VariantWithDetails | null>(handoffVariant)
+  const [variantLoading, setVariantLoading] = useState(!handoffVariant)
   const [variantLoadError, setVariantLoadError] = useState('')
 
   const [batches, setBatches] = useState<BatchWithSupplier[]>([])
@@ -240,12 +250,10 @@ export default function VariantDetailPage() {
     setVariantLoading(true)
     setVariantLoadError('')
     try {
-      const res = await fetch(`/api/inventory/${itemId}/variants`)
+      const res = await fetch(`/api/inventory/${itemId}/variants/${variantId}`)
       const body = await res.json()
       if (!res.ok) { setVariantLoadError(body.error || 'Variant not found'); setVariant(null); return }
-      const found = (body.data as VariantWithDetails[]).find(v => v.id === variantId) ?? null
-      if (!found) { setVariantLoadError('Variant not found'); setVariant(null); return }
-      setVariant(found)
+      setVariant(body.data)
     } catch {
       setVariantLoadError('Could not load the variant. Please check your connection.')
     } finally {
@@ -283,10 +291,82 @@ export default function VariantDetailPage() {
     }
   }
 
-  useEffect(() => { loadItem() }, [itemId])
-  useEffect(() => { loadVariant() }, [itemId, variantId])
+  // Hand-off data was just returned by the create request itself — no need
+  // to immediately re-fetch and flash back to a loading state for it.
+  useEffect(() => { if (!handoff) loadItem() }, [itemId])
+  useEffect(() => { if (!handoffVariant) loadVariant() }, [itemId, variantId])
   useEffect(() => { loadBatches() }, [itemId, variantId])
   useEffect(() => { loadMovements() }, [itemId, variantId])
+
+  // ── Record new purchase ────────────────────────────────────────────────────
+  const [showRecordPurchase, setShowRecordPurchase] = useState(false)
+  const [purchaseQty, setPurchaseQty] = useState('')
+  const [purchaseCost, setPurchaseCost] = useState('')
+  const [purchaseExpiry, setPurchaseExpiry] = useState('')
+  const [purchaseBatchNumber, setPurchaseBatchNumber] = useState('')
+  const [purchaseSaving, setPurchaseSaving] = useState(false)
+  const [purchaseError, setPurchaseError] = useState('')
+
+  function openRecordPurchase() {
+    setPurchaseQty('')
+    setPurchaseCost('')
+    setPurchaseExpiry('')
+    setPurchaseBatchNumber('')
+    setPurchaseError('')
+    setShowRecordPurchase(true)
+  }
+
+  function closeRecordPurchase() {
+    setShowRecordPurchase(false)
+    setPurchaseError('')
+  }
+
+  async function saveRecordPurchase() {
+    if (purchaseSaving) return
+    const qty = Number(purchaseQty)
+    const cost = Number(purchaseCost)
+    if (!purchaseQty.trim() || !Number.isFinite(qty) || qty <= 0) {
+      setPurchaseError('Enter a quantity greater than 0.')
+      return
+    }
+    if (!purchaseCost.trim() || !Number.isFinite(cost) || cost <= 0) {
+      setPurchaseError('Enter a purchase cost greater than 0.')
+      return
+    }
+    if (item?.has_expiry && !purchaseExpiry) {
+      setPurchaseError('Expiry date is required for this product.')
+      return
+    }
+
+    setPurchaseSaving(true)
+    setPurchaseError('')
+    try {
+      const res = await fetch(`/api/inventory/${itemId}/variants/${variantId}/batches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quantity: qty,
+          purchase_cost: cost,
+          expiry_date: purchaseExpiry || null,
+          batch_number: purchaseBatchNumber.trim() || null,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) { setPurchaseError(body.error || 'Could not save the purchase.'); return }
+      setBatches(prev => [body.data.batch, ...prev])
+      setVariant(prev => (prev ? { ...prev, ...body.data.variant } : prev))
+      closeRecordPurchase()
+    } catch {
+      setPurchaseError('Could not save the purchase. Please check your connection.')
+    } finally {
+      setPurchaseSaving(false)
+    }
+  }
+
+  const marginAlert = useMemo(
+    () => variant ? computeMarginAlert(variant.purchase_price, variant.selling_price, variant.target_profit_percent) : null,
+    [variant]
+  )
 
   const [activeTab, setActiveTab] = useState<Tab>('stock')
   const [stockSearch, setStockSearch] = useState('')
@@ -506,12 +586,17 @@ export default function VariantDetailPage() {
     }))
   }, [batches])
 
+  // A product without variants has no meaningful "variant listing" to go
+  // back to — send those users straight to the product listing instead.
+  // Falls back to the item page while item is still unknown (loading/error).
+  const backHref = item && !item.has_variants ? '/dashboard/inventory' : `/dashboard/inventory/${itemId}`
+
   // ── Early returns: loading / not found ────────────────────────────────────
 
   if (itemLoading || variantLoading) {
     return (
       <div>
-        <button className={styles.backArrow} onClick={() => router.push(`/dashboard/inventory/${itemId}`)} title="Back to item">
+        <button className={styles.backArrow} onClick={() => router.push(backHref)} title="Back">
           <ArrowLeft size={18} />
         </button>
         <div className="empty-state">
@@ -524,7 +609,7 @@ export default function VariantDetailPage() {
   if (!item || !variant) {
     return (
       <div>
-        <button className={styles.backArrow} onClick={() => router.push(`/dashboard/inventory/${itemId}`)} title="Back to item">
+        <button className={styles.backArrow} onClick={() => router.push(backHref)} title="Back">
           <ArrowLeft size={18} />
         </button>
         <div className="empty-state">
@@ -540,7 +625,7 @@ export default function VariantDetailPage() {
       {/* Header */}
       <div className={styles.pageHead}>
         <div className={styles.titleBlock}>
-          <button className={styles.backArrow} onClick={() => router.push(`/dashboard/inventory/${itemId}`)} title="Back to item">
+          <button className={styles.backArrow} onClick={() => router.push(backHref)} title="Back">
             <ArrowLeft size={18} />
           </button>
           <div>
@@ -602,6 +687,21 @@ export default function VariantDetailPage() {
           </span>
         </div>
       </div>
+
+      {/* Margin alert — shown regardless of active tab */}
+      {marginAlert && (
+        <div className="alert alert--warning" style={{ marginBottom: 'var(--space-4)' }}>
+          <div className="alert__dot"></div>
+          <div>
+            <p className="alert__title">Selling price below target margin</p>
+            <p className="alert__body">
+              Selling price no longer meets your {marginAlert.targetProfitPercent}% target margin
+              (currently {Math.round(marginAlert.currentMarginPercent)}%). Consider raising the price to ~
+              {formatINR(Math.round((variant?.purchase_price ?? 0) * (1 + marginAlert.targetProfitPercent / 100)))}.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className={styles.tabBar}>
@@ -933,6 +1033,11 @@ export default function VariantDetailPage() {
                 onChange={e => setPurchaseSearch(e.target.value)}
               />
             </div>
+
+            <button className="btn btn--primary btn--sm" style={{ marginLeft: 'auto' }} onClick={openRecordPurchase}>
+              <Plus size={14} />
+              Record new purchase
+            </button>
 
             <div className={styles.stockFilterWrap}>
               <button
@@ -1434,6 +1539,74 @@ export default function VariantDetailPage() {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Record new purchase */}
+      {showRecordPurchase && (
+        <div className="modal-overlay" onClick={closeRecordPurchase}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3 className="modal__title">Record New Purchase</h3>
+            <div className="form-group">
+              <label className="form-label form-label--required">Quantity</label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                autoFocus
+                value={purchaseQty}
+                onChange={e => setPurchaseQty(e.target.value)}
+                disabled={purchaseSaving}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label form-label--required">Purchase cost per unit</label>
+              <div className={inv.compactCurrency}>
+                <span className={inv.compactCurrencySymbol}>₹</span>
+                <input
+                  className={inv.compactCurrencyInput}
+                  type="number"
+                  min="0"
+                  value={purchaseCost}
+                  onChange={e => setPurchaseCost(e.target.value)}
+                  disabled={purchaseSaving}
+                />
+              </div>
+            </div>
+            {item?.has_expiry && (
+              <div className="form-group">
+                <label className="form-label form-label--required">Expiry date</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={purchaseExpiry}
+                  onChange={e => setPurchaseExpiry(e.target.value)}
+                  disabled={purchaseSaving}
+                />
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">
+                Batch number <span className="text-tertiary font-normal">(Optional)</span>
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                value={purchaseBatchNumber}
+                onChange={e => setPurchaseBatchNumber(e.target.value)}
+                disabled={purchaseSaving}
+              />
+            </div>
+            {purchaseError && <div className={inv.errorMsg}>{purchaseError}</div>}
+            <div className="modal__actions">
+              <button className="btn btn--ghost btn--sm" onClick={closeRecordPurchase} disabled={purchaseSaving}>
+                Cancel
+              </button>
+              <button className="btn btn--primary btn--sm" onClick={saveRecordPurchase} disabled={purchaseSaving}>
+                {purchaseSaving ? <span className="spinner--sm" /> : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       )}

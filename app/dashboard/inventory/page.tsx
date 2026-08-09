@@ -3,12 +3,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Pencil, Plus, X, Check, Filter, ChevronDown } from 'lucide-react'
+import { Pencil, Plus, X, Check, Filter, ChevronDown, Trash2 } from 'lucide-react'
 import Button from '@/components/ui/Button'
+import PricingFields from '@/components/inventory/PricingFields'
+import { useSetPageTitle } from '@/components/layout/PageTitleContext'
 import type { InventoryItemWithDetails } from '@/lib/services/inventory'
 import type { CategoryWithCount } from '@/lib/services/categories'
 import type { UnitWithUsage } from '@/lib/services/units'
 import type { AttributeWithUsage } from '@/lib/services/attributes'
+import type { VariantWithDetails } from '@/lib/services/variants'
+import { stashCreatedProduct } from '@/lib/utils/nav-handoff'
+import { loadLastUsedProductFields, saveLastUsedProductFields } from '@/lib/utils/last-used'
 import styles from './inventory.module.css'
 
 // ─── Form-local types ─────────────────────────────────────────────────────────
@@ -18,7 +23,7 @@ type ToastState = {
   type: 'success' | 'warning' | 'danger' | 'info'
 }
 
-type NewItemForm = {
+type BaseItemForm = {
   name: string
   // Attributes — selected from the shared attribute pool; these define what
   // will vary between this product's variants (created in a later step).
@@ -30,9 +35,50 @@ type NewItemForm = {
   subcategory: string
   // Expiry
   has_expiry: boolean
-  expires_within_days: number | ''
   // Notes
   description: string
+}
+
+// Edit Product touches the fields above plus has_variants/pricing below.
+// Pricing is only editable here for a product with no variants — with
+// multiple variants, there's no single "the" price to show, so the drawer
+// hides these and points to the per-variant editor on the product page
+// instead. Stock isn't editable here at all — it only ever changes via
+// Purchases/Consumption, same as the product detail page.
+type EditItemForm = BaseItemForm & {
+  // Freely toggleable when the product has at most one variant; locked on
+  // once there are 2+ (see editingItemVariantCount) — turning it off would
+  // leave no well-defined single default variant.
+  has_variants: boolean
+  purchase_cost: number | ''
+  target_profit_percent: number | ''
+  selling_price: number | ''
+  pricing_driven_by: 'target_profit' | 'selling_price'
+}
+
+type StockRow = { quantity: number | ''; expiry_date: string }
+
+type NewItemForm = BaseItemForm & {
+  // Product/variant code — label depends on has_variants; left blank, the
+  // backend auto-generates one (VAR-001, or the variant name for a
+  // has_variants product).
+  code: string
+  // Has variants — when true, this first variant needs an explicit name;
+  // when false, it's the product's only ("VAR-001") variant.
+  has_variants: boolean
+  variant_name: string
+  // Stock & Pricing — collected at creation so a product can be sold and
+  // stocked the moment it's saved, instead of needing 2 more steps after.
+  purchase_cost: number | ''
+  target_profit_percent: number | ''
+  selling_price: number | ''
+  // Selling price and target profit % are two views of the same math —
+  // whichever one the user last typed into directly "wins", and edits to
+  // the other two fields (cost, or the non-driving field) recompute it to
+  // stay consistent. Defaults to 'target_profit', matching the original
+  // cost + profit% -> price direction.
+  pricing_driven_by: 'target_profit' | 'selling_price'
+  stock_rows: StockRow[]
 }
 
 // ─── Custom select component ──────────────────────────────────────────────────
@@ -98,7 +144,7 @@ function CustomSelect({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function emptyForm(): NewItemForm {
+function emptyBaseForm(): BaseItemForm {
   return {
     name: '',
     selected_attributes: [],
@@ -106,8 +152,32 @@ function emptyForm(): NewItemForm {
     category: '',
     subcategory: '',
     has_expiry: false,
-    expires_within_days: '',
     description: '',
+  }
+}
+
+function emptyEditForm(): EditItemForm {
+  return {
+    ...emptyBaseForm(),
+    has_variants: false,
+    purchase_cost: '',
+    target_profit_percent: '',
+    selling_price: '',
+    pricing_driven_by: 'target_profit',
+  }
+}
+
+function emptyForm(): NewItemForm {
+  return {
+    ...emptyBaseForm(),
+    code: '',
+    has_variants: false,
+    variant_name: '',
+    purchase_cost: '',
+    target_profit_percent: '',
+    selling_price: '',
+    pricing_driven_by: 'target_profit',
+    stock_rows: [{ quantity: '', expiry_date: '' }],
   }
 }
 
@@ -123,6 +193,7 @@ type FilterKey = typeof FILTER_DEFS[number]['key']
 
 export default function InventoryPage() {
   const router = useRouter()
+  useSetPageTitle('Products')
 
   // ── Table state ─────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('')
@@ -140,6 +211,9 @@ export default function InventoryPage() {
   const [form, setForm] = useState<NewItemForm>(emptyForm())
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState('')
+  // Attributes/Description are optional — collapsed by default so the form
+  // reads as short; expanding is a deliberate opt-in, not a default cost.
+  const [showMoreDetails, setShowMoreDetails] = useState(false)
 
   // ── Attributes — loaded from the real Settings-managed data ──────────────────
   const [attributes, setAttributes] = useState<AttributeWithUsage[]>([])
@@ -192,9 +266,22 @@ export default function InventoryPage() {
   // so both can't clobber each other if a user somehow has both open.
   const [showEditDrawer, setShowEditDrawer] = useState(false)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<NewItemForm>(emptyForm())
+  // Snapshot of the variant count when Edit opened — used only to decide
+  // whether the Has Variants toggle is locked on; doesn't change live as
+  // the toggle itself is flipped.
+  const [editingItemVariantCount, setEditingItemVariantCount] = useState(0)
+  const [editForm, setEditForm] = useState<EditItemForm>(emptyEditForm())
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
+  // Attributes/Description — collapsed by default like Add Product, but
+  // opened automatically when the product already has values there, so
+  // editing never hides existing data behind a click.
+  const [showEditMoreDetails, setShowEditMoreDetails] = useState(false)
+  // Pricing for a single-variant product — loaded separately since the
+  // listing row doesn't carry the variant's id/prices. Null id means "no
+  // variants to edit pricing for" or "still loading".
+  const [editVariantId, setEditVariantId] = useState<string | null>(null)
+  const [editVariantLoading, setEditVariantLoading] = useState(false)
   // Set when the server reports that removing an attribute would delete
   // real variant data — shown as a confirm popup before retrying with
   // confirm_attribute_removal: true.
@@ -221,6 +308,15 @@ export default function InventoryPage() {
         a.toLowerCase().includes(editNewAttrInput.toLowerCase())
     )
     : []
+
+  // ── Delete product ────────────────────────────────────────────────────────────
+  // The server is the source of truth for whether a product is deletable
+  // (no purchase/sales history on any of its variants) — the button always
+  // shows, and a blocked delete surfaces the server's reason in the confirm
+  // dialog instead of trying to precompute deletability on the client.
+  const [deleteTarget, setDeleteTarget] = useState<InventoryItemWithDetails | null>(null)
+  const [deleteSaving, setDeleteSaving] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   // ── Toast ────────────────────────────────────────────────────────────────────
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -442,10 +538,10 @@ export default function InventoryPage() {
       subcategory: '',
       unit: item.unit_name,
       has_expiry: item.has_expiry,
-      expires_within_days: item.expires_within_days ?? '',
       description: item.notes ?? '',
       selected_attributes: [...item.attribute_names],
     }))
+    if (item.attribute_names.length > 0 || item.notes) setShowMoreDetails(true)
     setShowSuggestions(false)
   }
 
@@ -574,20 +670,22 @@ export default function InventoryPage() {
   // Opens the edit drawer prefilled from the item — splits its category
   // back into category/subcategory the same way the create form collects
   // them, by walking up to find whether it's a root category or a child.
-  function handleOpenEdit(item: InventoryItemWithDetails) {
+  async function handleOpenEdit(item: InventoryItemWithDetails) {
     const own = item.category_id ? categories.find(c => c.id === item.category_id) : null
     const isRoot = own ? own.parent_id === null : true
     const parent = own && !isRoot ? categories.find(c => c.id === own.parent_id) : null
 
     setEditingItemId(item.id)
+    setEditingItemVariantCount(item.variant_count)
     setEditForm({
+      ...emptyEditForm(),
       name: item.name,
       selected_attributes: [...item.attribute_names],
       unit: item.unit_name,
       category: isRoot ? (own?.name ?? '') : (parent?.name ?? ''),
       subcategory: isRoot ? '' : (own?.name ?? ''),
       has_expiry: item.has_expiry,
-      expires_within_days: item.expires_within_days ?? '',
+      has_variants: item.has_variants,
       description: item.notes ?? '',
     })
     setEditAddingAttr(false)
@@ -596,19 +694,76 @@ export default function InventoryPage() {
     setEditAddingSubcategory(false)
     setEditError('')
     setConfirmAttrRemoval(null)
+    setEditVariantId(null)
+    setShowEditMoreDetails(item.attribute_names.length > 0 || !!item.notes)
     setShowEditDrawer(true)
+
+    // Pricing only applies to a single, unambiguous variant — fetch it
+    // whenever there's at most one, regardless of the has_variants flag's
+    // current value, since the toggle can be flipped live in this drawer
+    // (see the toggle's onClick) and pricing needs to be ready either way.
+    if (item.variant_count <= 1) {
+      setEditVariantLoading(true)
+      try {
+        const res = await fetch(`/api/inventory/${item.id}/variants`)
+        const body = await res.json()
+        const variant = res.ok ? (body.data as VariantWithDetails[])[0] : null
+        if (variant) {
+          setEditVariantId(variant.id)
+          setEditForm(prev => ({
+            ...prev,
+            purchase_cost: variant.purchase_price ?? '',
+            target_profit_percent: variant.target_profit_percent ?? '',
+            selling_price: variant.selling_price ?? '',
+          }))
+        }
+      } catch {
+        // Pricing fields just stay blank — editable name/category/etc. still work.
+      } finally {
+        setEditVariantLoading(false)
+      }
+    }
   }
 
   function handleCloseEditDrawer() {
     setShowEditDrawer(false)
     setEditingItemId(null)
-    setEditForm(emptyForm())
+    setEditingItemVariantCount(0)
+    setEditForm(emptyEditForm())
     setEditAddingAttr(false)
     setEditAddingUnit(false)
     setEditAddingCategory(false)
     setEditAddingSubcategory(false)
     setEditError('')
     setConfirmAttrRemoval(null)
+    setEditVariantId(null)
+    setShowEditMoreDetails(false)
+  }
+
+  function handleDeleteItem(item: InventoryItemWithDetails) {
+    setDeleteTarget(item)
+    setDeleteError('')
+  }
+
+  async function confirmDeleteItem() {
+    if (!deleteTarget || deleteSaving) return
+    setDeleteSaving(true)
+    setDeleteError('')
+    try {
+      const res = await fetch(`/api/inventory/${deleteTarget.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json()
+        setDeleteError(body.error || 'Could not delete the product.')
+        return
+      }
+      setItems(prev => prev.filter(i => i.id !== deleteTarget.id))
+      showToast(`"${deleteTarget.name}" deleted`)
+      setDeleteTarget(null)
+    } catch {
+      setDeleteError('Could not delete the product. Please check your connection.')
+    } finally {
+      setDeleteSaving(false)
+    }
   }
 
   async function handleSaveEdit(confirmAttributeRemoval = false) {
@@ -631,6 +786,18 @@ export default function InventoryPage() {
       .map(name => attributes.find(a => a.name === name)?.id)
       .filter((id): id is string => !!id)
 
+    const editingPricing = !editForm.has_variants && !!editVariantId
+    if (editingPricing) {
+      if (editForm.purchase_cost === '' || Number(editForm.purchase_cost) <= 0) {
+        setEditError('Purchase cost must be a positive number.')
+        return
+      }
+      if (editForm.selling_price === '' || Number(editForm.selling_price) <= 0) {
+        setEditError('Selling price must be a positive number.')
+        return
+      }
+    }
+
     setEditSaving(true)
     setEditError('')
     try {
@@ -642,9 +809,7 @@ export default function InventoryPage() {
           category_id: category?.id ?? null,
           unit_id: unit.id,
           has_expiry: editForm.has_expiry,
-          expires_within_days: editForm.has_expiry && editForm.expires_within_days !== ''
-            ? Number(editForm.expires_within_days)
-            : null,
+          has_variants: editForm.has_variants,
           notes: editForm.description.trim() || null,
           attribute_ids: attributeIds,
           confirm_attribute_removal: confirmAttributeRemoval,
@@ -661,8 +826,28 @@ export default function InventoryPage() {
         return
       }
 
-      setItems(prev => prev.map(item => item.id === editingItemId ? body.data : item))
-      showToast(`"${body.data.name}" updated`)
+      let updatedItem = body.data
+
+      if (editingPricing) {
+        const variantRes = await fetch(`/api/inventory/${editingItemId}/variants/${editVariantId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            purchase_price: Number(editForm.purchase_cost),
+            selling_price: Number(editForm.selling_price),
+            target_profit_percent: editForm.target_profit_percent === '' ? null : Number(editForm.target_profit_percent),
+          }),
+        })
+        const variantBody = await variantRes.json()
+        if (!variantRes.ok) {
+          setItems(prev => prev.map(item => item.id === editingItemId ? updatedItem : item))
+          setEditError(variantBody.error || 'Product saved, but pricing could not be updated.')
+          return
+        }
+      }
+
+      setItems(prev => prev.map(item => item.id === editingItemId ? updatedItem : item))
+      showToast(`"${updatedItem.name}" updated`)
       handleCloseEditDrawer()
     } catch {
       setEditError('Could not save the product. Please check your connection.')
@@ -679,7 +864,23 @@ export default function InventoryPage() {
     setAddingSubcategory(false)
     setAddingAttr(false)
     setShowSuggestions(false)
+    setShowMoreDetails(false)
     setShowAddDrawer(false)
+  }
+
+  // Pre-fills unit/category/subcategory from the last product created —
+  // only if that value still exists (a category could've been renamed or
+  // deleted since), otherwise it's left blank like normal.
+  function openAddDrawer() {
+    const last = loadLastUsedProductFields()
+    const base = emptyForm()
+    const unit = last.unit && allUnits.includes(last.unit) ? last.unit : base.unit
+    const category = last.category && allCategories.includes(last.category) ? last.category : base.category
+    const subcategory = category && last.subcategory && getSubcategoriesFor(category).some(s => s.name === last.subcategory)
+      ? last.subcategory
+      : base.subcategory
+    setForm({ ...base, unit, category, subcategory })
+    setShowAddDrawer(true)
   }
 
   async function handleSaveItem() {
@@ -694,6 +895,30 @@ export default function InventoryPage() {
         ? rootCategories.find(c => c.name === form.category)
         : null
     if ((form.subcategory || form.category) && !category) { setCreateError('Please select a valid category.'); return }
+
+    if (form.has_variants && !form.variant_name.trim()) {
+      setCreateError('Variant name is required.')
+      return
+    }
+    if (form.purchase_cost === '' || Number(form.purchase_cost) <= 0) {
+      setCreateError('Purchase cost must be a positive number.')
+      return
+    }
+    if (form.selling_price === '' || Number(form.selling_price) <= 0) {
+      setCreateError('Selling price must be a positive number.')
+      return
+    }
+    for (const row of form.stock_rows) {
+      const qty = row.quantity === '' ? 0 : Number(row.quantity)
+      if (qty < 0) {
+        setCreateError('Stock quantity cannot be negative.')
+        return
+      }
+      if (form.has_expiry && qty > 0 && !row.expiry_date) {
+        setCreateError('Batches with stock need an expiry date for a perishable product.')
+        return
+      }
+    }
 
     const attributeIds = form.selected_attributes
       .map(name => attributes.find(a => a.name === name)?.id)
@@ -710,18 +935,46 @@ export default function InventoryPage() {
           category_id: category?.id ?? null,
           unit_id: unit.id,
           has_expiry: form.has_expiry,
-          expires_within_days: form.has_expiry && form.expires_within_days !== ''
-            ? Number(form.expires_within_days)
-            : null,
           notes: form.description.trim() || null,
           attribute_ids: attributeIds,
+          has_variants: form.has_variants,
+          variant_name: form.has_variants ? form.variant_name.trim() : null,
+          code: form.code.trim() || null,
+          purchase_cost: Number(form.purchase_cost),
+          target_profit_percent: form.target_profit_percent === '' ? null : Number(form.target_profit_percent),
+          selling_price: Number(form.selling_price),
+          stock_rows: form.stock_rows.map(row => ({
+            quantity: Number(row.quantity),
+            expiry_date: form.has_expiry ? row.expiry_date : null,
+          })),
         }),
       })
       const body = await res.json()
       if (!res.ok) { setCreateError(body.error || 'Could not create the product.'); return }
 
-      handleCloseDrawer()
-      router.push(`/dashboard/inventory/${body.data.id}?new=1`)
+      saveLastUsedProductFields({ unit: form.unit, category: form.category, subcategory: form.subcategory })
+
+      const { item, variant } = body.data
+      const totalStock = form.stock_rows.reduce(
+        (sum, row) => sum + (row.quantity === '' ? 0 : Number(row.quantity)),
+        0
+      )
+      // The variant just created has no attribute values or purchase history
+      // yet — attribute_values/current_stock below are what a freshly
+      // created variant always looks like, not values fetched from the server.
+      stashCreatedProduct(item.id, {
+        item,
+        variant: { ...variant, attribute_values: [], current_stock: totalStock },
+      })
+
+      // Navigate immediately, without closing the drawer first — the drawer
+      // stays on screen until the route actually swaps, instead of briefly
+      // revealing the listing table underneath before the next page is ready.
+      if (form.has_variants) {
+        router.push(`/dashboard/inventory/${item.id}?new=1`)
+      } else {
+        router.push(`/dashboard/inventory/${item.id}/variant/${variant.id}`)
+      }
     } catch {
       setCreateError('Could not create the product. Please check your connection.')
     } finally {
@@ -733,16 +986,6 @@ export default function InventoryPage() {
 
   return (
     <div>
-      {/* Page Header */}
-      <div className={styles.headerRow}>
-        <h1>Products</h1>
-        <div className={styles.headerActions}>
-          <Button size="sm" icon={<Plus size={18} />} onClick={() => setShowAddDrawer(true)}>
-            Add Product
-          </Button>
-        </div>
-      </div>
-
       {/* Freemium Banner */}
       {items.length >= 45 && (
         <div className="upgrade-banner">
@@ -796,6 +1039,10 @@ export default function InventoryPage() {
             </>
           )}
         </div>
+
+        <Button size="sm" icon={<Plus size={18} />} onClick={openAddDrawer}>
+          Add Product
+        </Button>
       </div>
 
       {/* Active filter bar + result count — shown when any filter/search is active */}
@@ -940,7 +1187,7 @@ export default function InventoryPage() {
                 : 'Add your first product to get started'}
             </p>
             {!search && categoryFilters.length === 0 && (
-              <Button size="sm" onClick={() => setShowAddDrawer(true)}>
+              <Button size="sm" onClick={openAddDrawer}>
                 Add Product
               </Button>
             )}
@@ -950,9 +1197,10 @@ export default function InventoryPage() {
             <thead>
               <tr>
                 <th className={styles.itemNameCol}>Product Name</th>
-                <th className={styles.itemIdCol}>Product ID</th>
                 <th className={styles.categoryCol}>Category</th>
                 <th className={styles.stockCol}>Unit</th>
+                <th className={styles.variantsCol}>Variants</th>
+                <th className={styles.currentStockCol}>Current Stock</th>
                 <th className={styles.actionsHeader}>Actions</th>
               </tr>
             </thead>
@@ -965,21 +1213,13 @@ export default function InventoryPage() {
                 >
                   <td>{item.name}</td>
                   <td>
-                    <div className={styles.itemIdCell}>
-                      <span className={styles.itemIdCode}>{item.id}</span>
-                      {item.attribute_names.length > 0 && (
-                        <span className={styles.variantIdMore}>
-                          {item.attribute_names.length} attribute{item.attribute_names.length === 1 ? '' : 's'}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>
                     {item.category_name
                       ? <span className="badge badge--neutral">{item.category_name}</span>
                       : <span className="text-tertiary">—</span>}
                   </td>
                   <td>{item.unit_name}</td>
+                  <td>{item.variant_count}</td>
+                  <td>{item.current_stock} {item.unit_name}</td>
                   <td onClick={e => e.stopPropagation()}>
                     <div className={styles.actions}>
                       <button
@@ -988,6 +1228,13 @@ export default function InventoryPage() {
                         onClick={() => handleOpenEdit(item)}
                       >
                         <Pencil size={14} />
+                      </button>
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        title="Delete product"
+                        onClick={() => handleDeleteItem(item)}
+                      >
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </td>
@@ -1003,7 +1250,7 @@ export default function InventoryPage() {
         <div className="overlay" onClick={handleCloseDrawer}>
           <div
             className="drawer"
-            style={{ width: '560px', overflow: 'hidden' }}
+            style={{ width: '620px', overflow: 'hidden' }}
             onClick={e => e.stopPropagation()}
           >
             <div className="drawer__header">
@@ -1052,7 +1299,357 @@ export default function InventoryPage() {
                   </span>
                 </div>
 
-                {/* ── 2. Attributes ── */}
+                {/* ── 2. Unit ── */}
+                <div className="form-group">
+                  <label className="form-label form-label--required">Unit</label>
+                  {!addingUnit ? (
+                    <CustomSelect
+                      value={form.unit}
+                      disabled={unitsLoading}
+                      placeholder={unitsLoading ? 'Loading units…' : 'Select unit'}
+                      options={[
+                        ...allUnits.map(u => ({ value: u, label: u })),
+                        { value: '__new__', label: '+ Create new unit', isAction: true },
+                      ]}
+                      onChange={v => {
+                        if (v === '__new__') {
+                          setAddingUnit(true)
+                        } else {
+                          setForm(prev => ({ ...prev, unit: v }))
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className={styles.inlineCreate}>
+                      <input
+                        ref={newUnitInputRef}
+                        className="form-input"
+                        placeholder="e.g. Boxes, Cartons, Packets"
+                        value={newUnitInput}
+                        onChange={e => setNewUnitInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleAddUnit()
+                          if (e.key === 'Escape') setAddingUnit(false)
+                        }}
+                        disabled={unitSaving}
+                      />
+                      <button
+                        type="button"
+                        className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
+                        title="Confirm"
+                        onClick={handleAddUnit}
+                        disabled={unitSaving}
+                      >
+                        {unitSaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
+                        title="Cancel"
+                        onClick={() => setAddingUnit(false)}
+                        disabled={unitSaving}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  )}
+                  {unitsLoadError && (
+                    <div className={styles.errorMsg}>
+                      {unitsLoadError}{' '}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadUnits}>Retry</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── 3/4. Category + Subcategory, side by side ── */}
+                <div className={styles.fieldsRow}>
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
+                    {!addingCategory ? (
+                      <CustomSelect
+                        value={form.category}
+                        disabled={categoriesLoading}
+                        placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
+                        options={[
+                          ...allCategories.map(c => ({ value: c, label: c })),
+                          { value: '__new__', label: '+ Create new category', isAction: true },
+                        ]}
+                        onChange={v => {
+                          if (v === '__new__') {
+                            setAddingCategory(true)
+                          } else {
+                            // Picking a different parent invalidates whatever
+                            // subcategory was selected — it belonged to the old one.
+                            setForm(prev => ({ ...prev, category: v, subcategory: '' }))
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className={styles.inlineCreate}>
+                        <input
+                          ref={newCategoryInputRef}
+                          className="form-input"
+                          placeholder="e.g. Nuts, Spices"
+                          value={newCategoryInput}
+                          onChange={e => setNewCategoryInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleAddCategory()
+                            if (e.key === 'Escape') setAddingCategory(false)
+                          }}
+                          disabled={categorySaving}
+                        />
+                        <button
+                          type="button"
+                          className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
+                          title="Confirm"
+                          onClick={handleAddCategory}
+                          disabled={categorySaving}
+                        >
+                          {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
+                          title="Cancel"
+                          onClick={() => setAddingCategory(false)}
+                          disabled={categorySaving}
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    )}
+                    {categoriesLoadError && (
+                      <div className={styles.errorMsg}>
+                        {categoriesLoadError}{' '}
+                        <button type="button" className="btn btn--ghost btn--sm" onClick={loadCategories}>Retry</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">
+                      Subcategory <span className="text-tertiary font-normal">(Optional)</span>
+                    </label>
+                    {!addingSubcategory ? (
+                      <CustomSelect
+                        value={form.subcategory}
+                        placeholder={form.category ? 'None' : 'Select category first'}
+                        disabled={!form.category}
+                        options={
+                          form.category
+                            ? [
+                                { value: '', label: 'None' },
+                                ...getSubcategoriesFor(form.category).map(s => ({ value: s.name, label: s.name })),
+                                { value: '__new__', label: '+ Create new subcategory', isAction: true },
+                              ]
+                            : []
+                        }
+                        onChange={v => {
+                          if (v === '__new__') {
+                            setAddingSubcategory(true)
+                          } else {
+                            setForm(prev => ({ ...prev, subcategory: v }))
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className={styles.inlineCreate}>
+                        <input
+                          ref={newSubcategoryInputRef}
+                          className="form-input"
+                          placeholder="e.g. Premium, Organic"
+                          value={newSubcategoryInput}
+                          onChange={e => setNewSubcategoryInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleAddSubcategory()
+                            if (e.key === 'Escape') setAddingSubcategory(false)
+                          }}
+                          disabled={subcategorySaving}
+                        />
+                        <button
+                          type="button"
+                          className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
+                          title="Confirm"
+                          onClick={handleAddSubcategory}
+                          disabled={subcategorySaving}
+                        >
+                          {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
+                          title="Cancel"
+                          onClick={() => setAddingSubcategory(false)}
+                          disabled={subcategorySaving}
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Divider between "categorization" and "product settings" ── */}
+                <div className={styles.groupDivider} />
+
+                {/* ── 5/6. Perishable + Has variants, side by side ── */}
+                <div className={styles.toggleGrid}>
+                  <div className={styles.toggleCard}>
+                    <label className="form-label">Perishable</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.has_expiry}
+                      className={`toggle ${form.has_expiry ? '' : 'toggle--off'}`}
+                      onClick={() =>
+                        setForm(prev => ({ ...prev, has_expiry: !prev.has_expiry }))
+                      }
+                    >
+                      <span className="toggle__dot" />
+                    </button>
+                  </div>
+
+                  <div className={styles.toggleCard}>
+                    <label className="form-label">Has variants</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.has_variants}
+                      className={`toggle ${form.has_variants ? '' : 'toggle--off'}`}
+                      onClick={() =>
+                        setForm(prev => ({ ...prev, has_variants: !prev.has_variants }))
+                      }
+                    >
+                      <span className="toggle__dot" />
+                    </button>
+                  </div>
+                </div>
+
+                {form.has_expiry && (
+                  <span className="form-hint">Perishable: any batch with stock will need its own expiry date.</span>
+                )}
+
+                {/* ── Code — always visible; label depends on Has variants ── */}
+                <div className="form-group">
+                  <label className="form-label">
+                    {form.has_variants ? 'Variant Code' : 'Product Code'} <span className="text-tertiary font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Auto-generated if left empty"
+                    value={form.code}
+                    onChange={e => setForm(prev => ({ ...prev, code: e.target.value }))}
+                  />
+                </div>
+
+                {form.has_variants && (
+                  <div className="form-group">
+                    <label className="form-label form-label--required">Variant Name</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      placeholder="e.g. 500g Pack"
+                      autoFocus
+                      value={form.variant_name}
+                      onChange={e => setForm(prev => ({ ...prev, variant_name: e.target.value }))}
+                    />
+                    <span className="form-hint">First variant name — more can be added from the product page.</span>
+                  </div>
+                )}
+
+                {/* ── Divider between "product info" and "stock & pricing" ── */}
+                <div className={styles.groupDivider} />
+
+                <div className="form-group">
+                  <label className="form-label">
+                    {form.has_expiry ? 'Batches' : 'Quantity'} <span className="text-tertiary font-normal">(Optional)</span>
+                  </label>
+                  {form.has_expiry && (
+                    <div className={styles.batchColumnLabels}>
+                      <span>Qty</span>
+                      <span>Expiry date</span>
+                    </div>
+                  )}
+                  {form.stock_rows.map((row, i) => (
+                    <div key={i} className={styles.stockRow}>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min="0"
+                        placeholder="Quantity"
+                        value={row.quantity}
+                        onChange={e => {
+                          const qty = e.target.value === '' ? '' : Number(e.target.value)
+                          setForm(prev => ({
+                            ...prev,
+                            stock_rows: prev.stock_rows.map((r, j) => (j === i ? { ...r, quantity: qty } : r)),
+                          }))
+                        }}
+                      />
+                      {form.has_expiry && (
+                        <input
+                          className="form-input"
+                          type="date"
+                          value={row.expiry_date}
+                          onChange={e => {
+                            const val = e.target.value
+                            setForm(prev => ({
+                              ...prev,
+                              stock_rows: prev.stock_rows.map((r, j) => (j === i ? { ...r, expiry_date: val } : r)),
+                            }))
+                          }}
+                        />
+                      )}
+                      {form.stock_rows.length > 1 && (
+                        <button
+                          type="button"
+                          className={styles.removeBtn}
+                          title="Remove batch"
+                          onClick={() =>
+                            setForm(prev => ({ ...prev, stock_rows: prev.stock_rows.filter((_, j) => j !== i) }))
+                          }
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {form.has_expiry && (
+                    <button
+                      type="button"
+                      className={styles.addAttrBtn}
+                      onClick={() =>
+                        setForm(prev => ({ ...prev, stock_rows: [...prev.stock_rows, { quantity: '', expiry_date: '' }] }))
+                      }
+                    >
+                      + Add another batch
+                    </button>
+                  )}
+                  <span className="form-hint">Leave quantity at 0 if you haven&apos;t received stock yet.</span>
+                </div>
+
+                {/* ── 7/8. Pricing ── */}
+                <PricingFields
+                  value={form}
+                  onChange={next => setForm(prev => ({ ...prev, ...next }))}
+                  purchaseCostHint="Cost for this opening batch of stock."
+                  targetProfitHint="Auto-calculates the selling price — editable."
+                  sellingPriceHint="Auto-calculated from cost and target profit — edit to update the markup instead."
+                />
+
+                {/* ── 9/10. Attributes + Description — collapsed by default ── */}
+                <button
+                  type="button"
+                  className={`${styles.moreDetailsToggle} ${showMoreDetails ? styles.moreDetailsToggleOpen : ''}`}
+                  onClick={() => setShowMoreDetails(v => !v)}
+                >
+                  {showMoreDetails ? 'Hide attributes & description' : '+ Add attributes & description (optional)'}
+                  <ChevronDown size={14} />
+                </button>
+
+                {showMoreDetails && (
+                  <>
                 <div className="form-group">
                   <label className="form-label">Attributes</label>
 
@@ -1159,243 +1756,7 @@ export default function InventoryPage() {
                   </span>
                 </div>
 
-                {/* ── 3. Unit ── */}
-                <div className="form-group">
-                  <label className="form-label form-label--required">Unit</label>
-                  {!addingUnit ? (
-                    <CustomSelect
-                      value={form.unit}
-                      disabled={unitsLoading}
-                      placeholder={unitsLoading ? 'Loading units…' : 'Select unit'}
-                      options={[
-                        ...allUnits.map(u => ({ value: u, label: u })),
-                        { value: '__new__', label: '+ Create new unit', isAction: true },
-                      ]}
-                      onChange={v => {
-                        if (v === '__new__') {
-                          setAddingUnit(true)
-                        } else {
-                          setForm(prev => ({ ...prev, unit: v }))
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div className={styles.inlineCreate}>
-                      <input
-                        ref={newUnitInputRef}
-                        className="form-input"
-                        placeholder="e.g. Boxes, Cartons, Packets"
-                        value={newUnitInput}
-                        onChange={e => setNewUnitInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddUnit()
-                          if (e.key === 'Escape') setAddingUnit(false)
-                        }}
-                        disabled={unitSaving}
-                      />
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
-                        title="Confirm"
-                        onClick={handleAddUnit}
-                        disabled={unitSaving}
-                      >
-                        {unitSaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
-                        title="Cancel"
-                        onClick={() => setAddingUnit(false)}
-                        disabled={unitSaving}
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )}
-                  {unitsLoadError && (
-                    <div className={styles.errorMsg}>
-                      {unitsLoadError}{' '}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadUnits}>Retry</button>
-                    </div>
-                  )}
-                </div>
-
-                {/* ── Categorization ── */}
-                <div className={styles.sectionLabel}>Categorization</div>
-
-                {/* ── 4. Category ── */}
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  {!addingCategory ? (
-                    <CustomSelect
-                      value={form.category}
-                      disabled={categoriesLoading}
-                      placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
-                      options={[
-                        ...allCategories.map(c => ({ value: c, label: c })),
-                        { value: '__new__', label: '+ Create new category', isAction: true },
-                      ]}
-                      onChange={v => {
-                        if (v === '__new__') {
-                          setAddingCategory(true)
-                        } else {
-                          // Picking a different parent invalidates whatever
-                          // subcategory was selected — it belonged to the old one.
-                          setForm(prev => ({ ...prev, category: v, subcategory: '' }))
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div className={styles.inlineCreate}>
-                      <input
-                        ref={newCategoryInputRef}
-                        className="form-input"
-                        placeholder="e.g. Nuts, Spices, Beverages"
-                        value={newCategoryInput}
-                        onChange={e => setNewCategoryInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddCategory()
-                          if (e.key === 'Escape') setAddingCategory(false)
-                        }}
-                        disabled={categorySaving}
-                      />
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
-                        title="Confirm"
-                        onClick={handleAddCategory}
-                        disabled={categorySaving}
-                      >
-                        {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
-                        title="Cancel"
-                        onClick={() => setAddingCategory(false)}
-                        disabled={categorySaving}
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )}
-                  {categoriesLoadError && (
-                    <div className={styles.errorMsg}>
-                      {categoriesLoadError}{' '}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={loadCategories}>Retry</button>
-                    </div>
-                  )}
-                </div>
-
-                {/* ── 5. Subcategory ── */}
-                <div className="form-group">
-                  <label className="form-label">
-                    Subcategory <span className="text-tertiary font-normal">(Optional)</span>
-                  </label>
-                  {!addingSubcategory ? (
-                    <CustomSelect
-                      value={form.subcategory}
-                      placeholder={form.category ? 'None' : 'Select a category first'}
-                      disabled={!form.category}
-                      options={
-                        form.category
-                          ? [
-                              { value: '', label: 'None' },
-                              ...getSubcategoriesFor(form.category).map(s => ({ value: s.name, label: s.name })),
-                              { value: '__new__', label: '+ Create new subcategory', isAction: true },
-                            ]
-                          : []
-                      }
-                      onChange={v => {
-                        if (v === '__new__') {
-                          setAddingSubcategory(true)
-                        } else {
-                          setForm(prev => ({ ...prev, subcategory: v }))
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div className={styles.inlineCreate}>
-                      <input
-                        ref={newSubcategoryInputRef}
-                        className="form-input"
-                        placeholder="e.g. Premium, Organic, Salted"
-                        value={newSubcategoryInput}
-                        onChange={e => setNewSubcategoryInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddSubcategory()
-                          if (e.key === 'Escape') setAddingSubcategory(false)
-                        }}
-                        disabled={subcategorySaving}
-                      />
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
-                        title="Confirm"
-                        onClick={handleAddSubcategory}
-                        disabled={subcategorySaving}
-                      >
-                        {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
-                        title="Cancel"
-                        onClick={() => setAddingSubcategory(false)}
-                        disabled={subcategorySaving}
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* ── 6. Expiry toggle ── */}
-                <div className="form-group">
-                  <div className={styles.fieldHeaderRow}>
-                    <label className="form-label">Perishable — has expiry date</label>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={form.has_expiry}
-                      className={`toggle ${form.has_expiry ? '' : 'toggle--off'}`}
-                      onClick={() =>
-                        setForm(prev => ({ ...prev, has_expiry: !prev.has_expiry }))
-                      }
-                    >
-                      <span className="toggle__dot" />
-                    </button>
-                  </div>
-                  {form.has_expiry && (
-                    <div
-                      className="form-group"
-                      style={{ marginTop: 'var(--space-2)' }}
-                    >
-                      <label className="form-label">Expires within (days)</label>
-                      <input
-                        className="form-input"
-                        type="number"
-                        min="1"
-                        placeholder="e.g. 30"
-                        autoFocus
-                        value={form.expires_within_days}
-                        onChange={e =>
-                          setForm(prev => ({
-                            ...prev,
-                            expires_within_days:
-                              e.target.value === '' ? '' : Number(e.target.value),
-                          }))
-                        }
-                      />
-                      <span className="form-hint">
-                        Stock will be flagged for review as it approaches this expiry window.
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* ── 7. Description ── */}
+                {/* ── 10. Description ── */}
                 <div className="form-group">
                   <label className="form-label">
                     Description <span className="text-tertiary font-normal">(Optional)</span>
@@ -1409,6 +1770,8 @@ export default function InventoryPage() {
                     }
                   />
                 </div>
+                  </>
+                )}
 
                 {createError && (
                   <div className={styles.errorMsg}>{createError}</div>
@@ -1460,98 +1823,7 @@ export default function InventoryPage() {
                   />
                 </div>
 
-                {/* 2. Attributes */}
-                <div className="form-group">
-                  <label className="form-label">Attributes</label>
-
-                  {editForm.selected_attributes.length > 0 && (
-                    <div className={styles.attrChipsRow}>
-                      {editForm.selected_attributes.map(attr => (
-                        <span key={attr} className={styles.attrChip}>
-                          {attr}
-                          <button
-                            type="button"
-                            className={styles.attrChipRemove}
-                            onClick={() => removeEditSelectedAttribute(attr)}
-                            title={`Remove ${attr}`}
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {editAddingAttr ? (
-                    <div className={styles.attrAddRow}>
-                      <div className={styles.attrInputWrap}>
-                        <input
-                          className="form-input"
-                          autoFocus
-                          placeholder="Type attribute name and press Enter…"
-                          value={editNewAttrInput}
-                          onChange={e => setEditNewAttrInput(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') handleCreateEditAttribute(editNewAttrInput)
-                            if (e.key === 'Escape') { setEditAddingAttr(false); setEditNewAttrInput('') }
-                          }}
-                          disabled={attributeSaving}
-                        />
-                        {editAttrSuggestions.length > 0 && (
-                          <div className={styles.attrSuggestions}>
-                            {editAttrSuggestions.map(attr => (
-                              <button
-                                key={attr}
-                                type="button"
-                                className={styles.attrSuggestionItem}
-                                onMouseDown={() => {
-                                  addEditSelectedAttribute(attr)
-                                  setEditNewAttrInput('')
-                                  setEditAddingAttr(false)
-                                }}
-                              >
-                                {attr}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
-                        title="Add attribute"
-                        onClick={() => handleCreateEditAttribute(editNewAttrInput)}
-                        disabled={attributeSaving}
-                      >
-                        {attributeSaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
-                        title="Cancel"
-                        onClick={() => { setEditAddingAttr(false); setEditNewAttrInput('') }}
-                        disabled={attributeSaving}
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.addAttrBtn}
-                      onClick={() => setEditAddingAttr(true)}
-                      disabled={attributesLoading}
-                    >
-                      + Add attribute
-                    </button>
-                  )}
-
-                  <span className="form-hint">
-                    Attributes define what varies between this product&apos;s variants (e.g. Size, Color).
-                  </span>
-                </div>
-
-                {/* 3. Unit */}
+                {/* 2. Unit */}
                 <div className="form-group">
                   <label className="form-label form-label--required">Unit</label>
                   {!editAddingUnit ? (
@@ -1592,105 +1864,106 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                {/* Categorization */}
-                <div className={styles.sectionLabel}>Categorization</div>
+                {/* 3/4. Category + Subcategory, side by side */}
+                <div className={styles.fieldsRow}>
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
+                    {!editAddingCategory ? (
+                      <CustomSelect
+                        value={editForm.category}
+                        disabled={categoriesLoading}
+                        placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
+                        options={[
+                          ...allCategories.map(c => ({ value: c, label: c })),
+                          { value: '__new__', label: '+ Create new category', isAction: true },
+                        ]}
+                        onChange={v => {
+                          if (v === '__new__') {
+                            setEditAddingCategory(true)
+                          } else {
+                            setEditForm(prev => ({ ...prev, category: v, subcategory: '' }))
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className={styles.inlineCreate}>
+                        <input
+                          ref={newEditCategoryInputRef}
+                          className="form-input"
+                          placeholder="e.g. Nuts, Spices, Beverages"
+                          value={newEditCategoryInput}
+                          onChange={e => setNewEditCategoryInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleAddEditCategory()
+                            if (e.key === 'Escape') setEditAddingCategory(false)
+                          }}
+                          disabled={categorySaving}
+                        />
+                        <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditCategory} disabled={categorySaving}>
+                          {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                        </button>
+                        <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingCategory(false)} disabled={categorySaving}>
+                          <X size={15} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-                {/* 4. Category */}
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  {!editAddingCategory ? (
-                    <CustomSelect
-                      value={editForm.category}
-                      disabled={categoriesLoading}
-                      placeholder={categoriesLoading ? 'Loading categories…' : 'Select category'}
-                      options={[
-                        ...allCategories.map(c => ({ value: c, label: c })),
-                        { value: '__new__', label: '+ Create new category', isAction: true },
-                      ]}
-                      onChange={v => {
-                        if (v === '__new__') {
-                          setEditAddingCategory(true)
-                        } else {
-                          setEditForm(prev => ({ ...prev, category: v, subcategory: '' }))
+                  <div className="form-group">
+                    <label className="form-label">
+                      Subcategory <span className="text-tertiary font-normal">(Optional)</span>
+                    </label>
+                    {!editAddingSubcategory ? (
+                      <CustomSelect
+                        value={editForm.subcategory}
+                        placeholder={editForm.category ? 'None' : 'Select a category first'}
+                        disabled={!editForm.category}
+                        options={
+                          editForm.category
+                            ? [
+                                { value: '', label: 'None' },
+                                ...getSubcategoriesFor(editForm.category).map(s => ({ value: s.name, label: s.name })),
+                                { value: '__new__', label: '+ Create new subcategory', isAction: true },
+                              ]
+                            : []
                         }
-                      }}
-                    />
-                  ) : (
-                    <div className={styles.inlineCreate}>
-                      <input
-                        ref={newEditCategoryInputRef}
-                        className="form-input"
-                        placeholder="e.g. Nuts, Spices, Beverages"
-                        value={newEditCategoryInput}
-                        onChange={e => setNewEditCategoryInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddEditCategory()
-                          if (e.key === 'Escape') setEditAddingCategory(false)
+                        onChange={v => {
+                          if (v === '__new__') setEditAddingSubcategory(true)
+                          else setEditForm(prev => ({ ...prev, subcategory: v }))
                         }}
-                        disabled={categorySaving}
                       />
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditCategory} disabled={categorySaving}>
-                        {categorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingCategory(false)} disabled={categorySaving}>
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )}
+                    ) : (
+                      <div className={styles.inlineCreate}>
+                        <input
+                          ref={newEditSubcategoryInputRef}
+                          className="form-input"
+                          placeholder="e.g. Premium, Organic, Salted"
+                          value={newEditSubcategoryInput}
+                          onChange={e => setNewEditSubcategoryInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleAddEditSubcategory()
+                            if (e.key === 'Escape') setEditAddingSubcategory(false)
+                          }}
+                          disabled={subcategorySaving}
+                        />
+                        <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditSubcategory} disabled={subcategorySaving}>
+                          {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                        </button>
+                        <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingSubcategory(false)} disabled={subcategorySaving}>
+                          <X size={15} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* 5. Subcategory */}
-                <div className="form-group">
-                  <label className="form-label">
-                    Subcategory <span className="text-tertiary font-normal">(Optional)</span>
-                  </label>
-                  {!editAddingSubcategory ? (
-                    <CustomSelect
-                      value={editForm.subcategory}
-                      placeholder={editForm.category ? 'None' : 'Select a category first'}
-                      disabled={!editForm.category}
-                      options={
-                        editForm.category
-                          ? [
-                              { value: '', label: 'None' },
-                              ...getSubcategoriesFor(editForm.category).map(s => ({ value: s.name, label: s.name })),
-                              { value: '__new__', label: '+ Create new subcategory', isAction: true },
-                            ]
-                          : []
-                      }
-                      onChange={v => {
-                        if (v === '__new__') setEditAddingSubcategory(true)
-                        else setEditForm(prev => ({ ...prev, subcategory: v }))
-                      }}
-                    />
-                  ) : (
-                    <div className={styles.inlineCreate}>
-                      <input
-                        ref={newEditSubcategoryInputRef}
-                        className="form-input"
-                        placeholder="e.g. Premium, Organic, Salted"
-                        value={newEditSubcategoryInput}
-                        onChange={e => setNewEditSubcategoryInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddEditSubcategory()
-                          if (e.key === 'Escape') setEditAddingSubcategory(false)
-                        }}
-                        disabled={subcategorySaving}
-                      />
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`} title="Confirm" onClick={handleAddEditSubcategory} disabled={subcategorySaving}>
-                        {subcategorySaving ? <span className="spinner--sm" /> : <Check size={15} />}
-                      </button>
-                      <button type="button" className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`} title="Cancel" onClick={() => setEditAddingSubcategory(false)} disabled={subcategorySaving}>
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                {/* ── Divider between "categorization" and "product settings" ── */}
+                <div className={styles.groupDivider} />
 
-                {/* 6. Expiry toggle */}
-                <div className="form-group">
-                  <div className={styles.fieldHeaderRow}>
-                    <label className="form-label">Perishable — has expiry date</label>
+                {/* 5/6. Perishable + Has variants, side by side */}
+                <div className={styles.toggleGrid}>
+                  <div className={styles.toggleCard}>
+                    <label className="form-label">Perishable</label>
                     <button
                       type="button"
                       role="switch"
@@ -1701,37 +1974,173 @@ export default function InventoryPage() {
                       <span className="toggle__dot" />
                     </button>
                   </div>
-                  {editForm.has_expiry && (
-                    <div className="form-group" style={{ marginTop: 'var(--space-2)' }}>
-                      <label className="form-label">Expires within (days)</label>
-                      <input
-                        className="form-input"
-                        type="number"
-                        min="1"
-                        placeholder="e.g. 30"
-                        value={editForm.expires_within_days}
-                        onChange={e =>
-                          setEditForm(prev => ({
-                            ...prev,
-                            expires_within_days: e.target.value === '' ? '' : Number(e.target.value),
-                          }))
-                        }
-                      />
-                    </div>
-                  )}
+
+                  <div className={styles.toggleCard}>
+                    <label className="form-label">Has variants</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={editForm.has_variants}
+                      className={`toggle ${editForm.has_variants ? '' : 'toggle--off'}`}
+                      disabled={editForm.has_variants && editingItemVariantCount > 1}
+                      title={
+                        editForm.has_variants && editingItemVariantCount > 1
+                          ? `Has ${editingItemVariantCount} variants — remove the extra ones to turn this off`
+                          : undefined
+                      }
+                      style={editForm.has_variants && editingItemVariantCount > 1 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                      onClick={() => setEditForm(prev => ({ ...prev, has_variants: !prev.has_variants }))}
+                    >
+                      <span className="toggle__dot" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* 7. Description */}
-                <div className="form-group">
-                  <label className="form-label">
-                    Description <span className="text-tertiary font-normal">(Optional)</span>
-                  </label>
-                  <textarea
-                    className="form-textarea"
-                    value={editForm.description}
-                    onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                {/* ── Divider between "product settings" and "pricing" ── */}
+                <div className={styles.groupDivider} />
+
+                {/* 6. Pricing — only for a product with no variants; a
+                    variant product has no single price to edit here. */}
+                {editForm.has_variants ? (
+                  <div className="form-group">
+                    <label className="form-label">Pricing</label>
+                    <span className="form-hint">
+                      {editingItemVariantCount > 1
+                        ? `This product has ${editingItemVariantCount} variants — manage pricing per variant on the product page.`
+                        : 'This product tracks variants — pricing is managed per variant on the product page.'}
+                    </span>
+                    <Link href={`/dashboard/inventory/${editingItemId}`} className="btn btn--ghost btn--sm" style={{ marginTop: 'var(--space-2)', alignSelf: 'flex-start' }}>
+                      Manage Variants
+                    </Link>
+                  </div>
+                ) : editVariantLoading ? (
+                  <div className="form-group">
+                    <label className="form-label">Pricing</label>
+                    <span className="form-hint">Loading…</span>
+                  </div>
+                ) : (
+                  <PricingFields
+                    value={editForm}
+                    onChange={next => setEditForm(prev => ({ ...prev, ...next }))}
+                    sellingPriceHint="Auto-calculated from cost and target profit — edit to update the markup instead."
                   />
-                </div>
+                )}
+
+                {/* 7/8. Attributes + Description — collapsed unless the
+                    product already has values there. */}
+                <button
+                  type="button"
+                  className={`${styles.moreDetailsToggle} ${showEditMoreDetails ? styles.moreDetailsToggleOpen : ''}`}
+                  onClick={() => setShowEditMoreDetails(v => !v)}
+                >
+                  {showEditMoreDetails ? 'Hide attributes & description' : '+ Add attributes & description (optional)'}
+                  <ChevronDown size={14} />
+                </button>
+
+                {showEditMoreDetails && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Attributes</label>
+
+                      {editForm.selected_attributes.length > 0 && (
+                        <div className={styles.attrChipsRow}>
+                          {editForm.selected_attributes.map(attr => (
+                            <span key={attr} className={styles.attrChip}>
+                              {attr}
+                              <button
+                                type="button"
+                                className={styles.attrChipRemove}
+                                onClick={() => removeEditSelectedAttribute(attr)}
+                                title={`Remove ${attr}`}
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {editAddingAttr ? (
+                        <div className={styles.attrAddRow}>
+                          <div className={styles.attrInputWrap}>
+                            <input
+                              className="form-input"
+                              autoFocus
+                              placeholder="Type attribute name and press Enter…"
+                              value={editNewAttrInput}
+                              onChange={e => setEditNewAttrInput(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleCreateEditAttribute(editNewAttrInput)
+                                if (e.key === 'Escape') { setEditAddingAttr(false); setEditNewAttrInput('') }
+                              }}
+                              disabled={attributeSaving}
+                            />
+                            {editAttrSuggestions.length > 0 && (
+                              <div className={styles.attrSuggestions}>
+                                {editAttrSuggestions.map(attr => (
+                                  <button
+                                    key={attr}
+                                    type="button"
+                                    className={styles.attrSuggestionItem}
+                                    onMouseDown={() => {
+                                      addEditSelectedAttribute(attr)
+                                      setEditNewAttrInput('')
+                                      setEditAddingAttr(false)
+                                    }}
+                                  >
+                                    {attr}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className={`${styles.attrActionBtn} ${styles.attrActionBtnConfirm}`}
+                            title="Add attribute"
+                            onClick={() => handleCreateEditAttribute(editNewAttrInput)}
+                            disabled={attributeSaving}
+                          >
+                            {attributeSaving ? <span className="spinner--sm" /> : <Check size={15} />}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.attrActionBtn} ${styles.attrActionBtnCancel}`}
+                            title="Cancel"
+                            onClick={() => { setEditAddingAttr(false); setEditNewAttrInput('') }}
+                            disabled={attributeSaving}
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.addAttrBtn}
+                          onClick={() => setEditAddingAttr(true)}
+                          disabled={attributesLoading}
+                        >
+                          + Add attribute
+                        </button>
+                      )}
+
+                      <span className="form-hint">
+                        Attributes define what varies between this product&apos;s variants (e.g. Size, Color).
+                      </span>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">
+                        Description <span className="text-tertiary font-normal">(Optional)</span>
+                      </label>
+                      <textarea
+                        className="form-textarea"
+                        value={editForm.description}
+                        onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
 
                 {editError && (
                   <div className={styles.errorMsg}>{editError}</div>
@@ -1747,7 +2156,7 @@ export default function InventoryPage() {
               <button
                 className="btn btn--primary"
                 onClick={() => handleSaveEdit(false)}
-                disabled={!editForm.name.trim() || !editForm.unit || editSaving}
+                disabled={!editForm.name.trim() || !editForm.unit || editSaving || editVariantLoading}
               >
                 {editSaving ? <span className="spinner--sm" /> : 'Save Changes'}
               </button>
@@ -1785,6 +2194,42 @@ export default function InventoryPage() {
                 }}
               >
                 Remove Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm product deletion ── */}
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => { if (!deleteSaving) setDeleteTarget(null) }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3 className="modal__title">Delete &quot;{deleteTarget.name}&quot;?</h3>
+            <p className="modal__body">
+              This permanently removes the product and its variant(s). This can&apos;t be undone.
+            </p>
+            {deleteError && (
+              <div className="alert alert--danger alert--mb-4">
+                <div className="alert__dot"></div>
+                <div>
+                  <p className="alert__body">{deleteError}</p>
+                </div>
+              </div>
+            )}
+            <div className="modal__actions">
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn--danger btn--sm"
+                onClick={confirmDeleteItem}
+                disabled={deleteSaving}
+              >
+                {deleteSaving ? <span className="spinner--sm" /> : 'Delete'}
               </button>
             </div>
           </div>
